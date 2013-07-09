@@ -1,0 +1,13 @@
+{application, jamq,
+ [
+  {description, "rabbit client wrapper"},
+  {vsn, "1.0.0"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  lager
+                 ]},
+  {mod, { jamq_app, []}},
+  {env, []}
+ ]}.
