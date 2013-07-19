@@ -33,17 +33,34 @@ name(Role) when is_atom(Role) ->
     list_to_atom("jamq_publisher_" ++ atom_to_list(Role)).
 
 publish_opt(Msg, Opts) when is_list(Opts) ->
-    Role = proplists:get_value(broker, Opts),
-    Exchange = proplists:get_value(exchange, Opts, <<"jskit-bus">>),
     Topic = proplists:get_value(topic, Opts, ""),
-    DeliveryMode = case proplists:get_bool(transient, Opts) of
-            true -> 1; false -> 2 end,
-    NoWait = proplists:get_bool(nowait, Opts),
-    gen_server:call(name(Role),
-        {publish, Exchange,
-            iolist_to_binary(Topic),
-            term_to_binary(wrapped_msg(Msg)),
-            DeliveryMode, NoWait}).
+    case maybe_publish(Msg) of
+        true ->
+            Role = proplists:get_value(broker, Opts),
+            Exchange = proplists:get_value(exchange, Opts, <<"jskit-bus">>),
+            DeliveryMode = case proplists:get_bool(transient, Opts) of
+                    true -> 1; false -> 2 end,
+            NoWait = proplists:get_bool(nowait, Opts),
+            gen_server:call(name(Role),
+                {publish, Exchange,
+                    iolist_to_binary(Topic),
+                    term_to_binary(wrapped_msg(Msg)),
+                    DeliveryMode, NoWait});
+        false -> log_message(Topic, Msg)
+    end.
+
+maybe_publish(Msg) ->
+    erlang:external_size(Msg) < 50*1024*1024.
+
+log_message(Topic, Msg) ->
+    lager:error("Trying to publish large message to ~p...", [Topic]),
+    try 
+        disk_log:open([{name, log}, {file, "/echo/logs/large_publish.log"}]),
+        disk_log:alog(log, {Topic, Msg}),
+        disk_log:close(log)
+    catch C:R ->
+        lager:error("Error when writing log: ~p", [{C,R}])
+    end.
 
 % NOTE: Use jamq:publish/2,3 instead!
 publish(Topic, Msg) ->
@@ -51,9 +68,13 @@ publish(Topic, Msg) ->
 publish(Topic, Msg, Timeout) when is_list(Topic) ->
     publish({undefined, Topic}, Msg, Timeout);
 publish({Role, Topic}, Msg, Timeout) ->
-    gen_server:call(name(Role), {publish,
-        iolist_to_binary(Topic),
-        term_to_binary(wrapped_msg(Msg))}, Timeout).
+    case maybe_publish(Msg) of
+        true ->
+            gen_server:call(name(Role), {publish,
+                iolist_to_binary(Topic),
+                term_to_binary(wrapped_msg(Msg))}, Timeout);
+        false -> log_message(Topic, Msg)
+    end.
 
 % NOTE: Use jamq:async_publish/2 instead!
 async_publish(Topic, Msg) when is_list(Topic) ->
