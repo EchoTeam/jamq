@@ -1,7 +1,7 @@
 {application, jamq,
  [
   {description, "rabbit client wrapper"},
-  {vsn, "1.0.0"},
+  {vsn, "1.0.2"},
   {registered, []},
   {applications, [
                   kernel,
