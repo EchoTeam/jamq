@@ -13,6 +13,7 @@
     start_link/0,
     start_link/1,
     reconfigure/0,
+    start_new_channels/0,
     get_brokers/1, % temporarily function
     new_config_migration0/0,
     new_config_migration1/0
@@ -50,6 +51,29 @@ reconfigure() ->
     {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
     {ok, { _, ChildSpecs }} = init(BrokerSpecs),
     code_update_mod:reconfigure_supervisor(?MODULE, ChildSpecs).
+
+start_new_channels() ->
+    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
+
+    NewSpecs =
+        [{
+            process_name(["jamq_connection", erlang:atom_to_list(BrokerGroup), BrokerHostName]),
+            {jamq_channel, start_link, [jamq_channel:name(BrokerGroup, BrokerHostName), BrokerHostName]},
+            permanent, 10000, worker, [jamq_channel]
+         } || {BrokerGroup, BrokerHosts} <-  BrokerSpecs, BrokerHostName <- BrokerHosts],
+
+    lists:foreach(
+        fun({Id, _, _, _, _, _} = S) ->
+            io:format("Starting ~p... ", [Id]),
+            case supervisor:start_child(?MODULE, S) of
+                {ok, _} -> io:format("ok~n");
+                {error, {already_started, _}} -> io:format("skip~n");
+                {error, Error} -> io:format("error (~1000000p)~n", [Error])
+            end
+        end, NewSpecs),
+
+    io:format("Channels restart finished~n").
+
 
 new_config_migration0() ->
     stream_server:reload_config(),
