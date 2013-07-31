@@ -29,7 +29,7 @@
 
 -define(DEFAULT_EXCHANGE, <<"jskit-bus">>).
 
--include_lib("rabbitmqclient/include/amqp_client.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 % NOTE: Use jamq:unsubscribe/1 instead!
 unsubscribe(ServerRef) -> gen_server:call(ServerRef, {unsubscribe}).

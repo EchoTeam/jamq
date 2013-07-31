@@ -6,7 +6,7 @@
 -module(jamq_api).
 -compile(export_all).
 
--include_lib("rabbitmqclient/include/amqp_client.hrl").
+-include_lib("amqp_client/include/amqp_client.hrl").
 
 declare_permanent_exchange(Channel, X, Type) ->
     amqp_channel:call(Channel, #'exchange.declare'{

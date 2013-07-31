@@ -26,8 +26,8 @@
     format_status/2
 ]).
 
--include_lib("rabbitmq/include/rabbit.hrl").
--include_lib("rabbitmq/include/rabbit_framing.hrl").
+-include_lib("rabbit_common/include/rabbit.hrl").
+-include_lib("rabbit_common/include/rabbit_framing.hrl").
 
 name(Role) when is_atom(Role) ->
     list_to_atom("jamq_publisher_" ++ atom_to_list(Role)).
