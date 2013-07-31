@@ -25,7 +25,7 @@
 
 -module(lib_amqp).
 
--include_lib("amqp_client/include/amqp_client.hrl").
+-include_lib("rabbitmqclient/include/amqp_client.hrl").
 
 -compile(export_all).
 
@@ -41,7 +41,8 @@ start_connection(Host) ->
 start_connection(Host, Port) ->
     {ok, Connection} = amqp_connection:start(#amqp_params_network{
             host = Host,
-            port = Port
+            port = Port,
+            heartbeat = ?DEFAULT_AMQP_HEARTBEAT
         }),
     Connection.
 
