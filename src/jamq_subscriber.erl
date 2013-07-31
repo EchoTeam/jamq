@@ -27,6 +27,8 @@
     format_status/2
 ]).
 
+-define(gc_period, 1000).
+
 -define(DEFAULT_EXCHANGE, <<"jskit-bus">>).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
@@ -58,7 +60,8 @@ start_link(Properties) ->
     message_processor,    % Process which hangles messages.
     ch_monref,
     ch_timer,
-    subscription = #subscription{}
+    subscription = #subscription{},
+    recv_msg_count = 0
     }).
 
 init(Properties) ->
@@ -188,8 +191,8 @@ handle_info({'DOWN', ERef, process, EPid, normal},
         true -> lib_amqp:ack(Channel, DeliveryTag);
         false -> ok
     end,
-    {noreply, dispatch(State#state{messages = NewMsgsQ,
-        message_processor = undefined})};
+    {noreply, dispatch(on_msg_received(State#state{messages = NewMsgsQ,
+        message_processor = undefined}))};
 %% Message was handled improperly, start the retry timer and notify the user.
 handle_info({'DOWN', ERef, process, EPid, Info},
         #state{message_processor = {EPid,ERef}} = State) ->
@@ -219,7 +222,15 @@ handle_info(_Info, State = #state{}) ->
 terminate(Reason, State) -> unsubscribe_and_close(Reason, State).
 
 code_change(_OldVsn, State, _Extra) ->
-    {ok, State}.
+    NewState =
+        case State of
+            {state, _, _, _, _, _, _, _, _} ->
+                S = erlang:append_element(State, 0),
+                lager:info("Subscriber state migration: ~p", [S]),
+                S;
+            #state{} -> State
+        end,
+    {ok, NewState}.
 
 
 format_status(_Opt, [_Dict, State]) ->
@@ -295,7 +306,8 @@ status_of_state(State) ->
         {bindtag, (State#state.subscription)#subscription.qbind_tag},
         {topic, (State#state.subscription)#subscription.topic},
         {broker, (State#state.subscription)#subscription.broker},
-        {proc, State#state.message_processor}
+        {proc, State#state.message_processor},
+        {recv_message_count, State#state.recv_msg_count}
     ].
 
 start_acquire_channel_timer() ->
@@ -316,6 +328,9 @@ retry_handler(#state{messages = MsgsQ} = State, MessageType, Info, RetryInterval
     {ok, Timer} = timer:send_after(RetryInterval, retry_dispatch),
     State#state{message_processor = undefined, messages_retry_timer = Timer}.
 
+on_msg_received(State = #state{recv_msg_count = N}) ->
+    (N rem ?gc_period) == 0 andalso erlang:garbage_collect(),
+    State#state{recv_msg_count = N + 1}.
 
 
 % Helps restart subscribers after code update

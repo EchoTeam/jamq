@@ -26,6 +26,8 @@
     format_status/2
 ]).
 
+-define(gc_period, 1000).
+
 -include_lib("rabbit_common/include/rabbit.hrl").
 -include_lib("rabbit_common/include/rabbit_framing.hrl").
 
@@ -106,7 +108,8 @@ async_transient_publish({Role, Topic}, Msg) ->
     brokers = [],   % Defines order to send messages
     channels = [] :: [#chan{}], % Active AMQP Channels
     ch_timer = undefined, % Reconnection timer
-    queue = queue:new()    % Excess queue
+    queue = queue:new(), % Excess queue
+    sent_msg_count = 0
     }).
 
 % obsolete function, use start_link/2 instead
@@ -210,7 +213,16 @@ terminate(Reason, #state{channels = Channels}) ->
             (Chan == undefined) orelse (catch lib_amqp:close_channel(Chan))
         end, Channels).
 
-code_change(_OldVsn, State, _Extra) -> {ok, State}.
+code_change(_OldVsn, State, _Extra) ->
+    NewState =
+        case State of
+            {state, _, _, _, _, _} ->
+                S = erlang:append_element(State, 0),
+                lager:info("Publisher state migration: ~p", [S]),
+                S;
+            #state{} -> State
+        end,
+    {ok, NewState}.
 
 format_status(_Opt, [_Dict, State]) ->
     [{data,  [{"State",  status_of_state(State)}]}].
@@ -234,7 +246,6 @@ acquire_channels(Channels) ->
         end,
         false, Channels).
 
-
 handle_down([], Ref, Reason, State = #state{role = Role, channels = Channels}) ->
     lager:error("JAMQ Publisher ~p(~p) unhandled 'DOWN' - ~p, reason ~100000000p / channels: ~10000000p", [Role, self(), Ref, Reason, Channels]),
     State;
@@ -243,7 +254,7 @@ handle_down([#chan{publisher = {_, Ref}, msg = {From, _}} = Chan|_], Ref, normal
             #state{channels = Channels} = State) ->
     (From == nofrom) orelse gen_server:reply(From, ok),
     NewState = State#state{channels = clean_channel(Chan, Channels)},
-    drain_queue(NewState);
+    drain_queue(on_msg_sent(NewState));
 
 handle_down([#chan{publisher = {_, Ref}, msg = Msg} = Chan|_], Ref, {{error, {channel, Reason}}, _},
             #state{channels = Channels, queue = Q, role = Role} = State) ->
@@ -267,7 +278,7 @@ handle_down([#chan{mon = Ref, publisher = Publisher, msg = Msg, broker = B} = Ch
         end,
     NewState = State#state{queue = NewQ, channels = clean_channel(Chan, Channels)},
     reconnect(B, NewState);
-    
+
 handle_down([_|Tail], Ref, Reason, State) ->
     handle_down(Tail, Ref, Reason, State).
 
@@ -388,6 +399,12 @@ status_of_state(State) ->
     [
         {role, State#state.role},
         {queue_length, queue:len(State#state.queue)},
-        {channels, State#state.channels}
+        {channels, State#state.channels},
+        {sent_message_count, State#state.sent_msg_count}
     ].
+
+on_msg_sent(State = #state{sent_msg_count = N}) ->
+    (N rem ?gc_period) == 0 andalso erlang:garbage_collect(),
+    State#state{sent_msg_count = N + 1}.
+
 
