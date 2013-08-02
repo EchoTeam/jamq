@@ -13,10 +13,10 @@
     start_link/0,
     start_link/1,
     reconfigure/0,
-    start_new_channels/0,
     get_brokers/1, % temporarily function
     new_config_migration0/0,
-    new_config_migration1/0
+    new_config_migration1/0,
+    children_specs/1
 ]).
 
 start_link() ->
@@ -29,51 +29,24 @@ start_link(BrokerSpecs) ->
 
 init(BrokerSpecs) ->
 
-    ChannelsSpecs =
-        [{
-            process_name(["jamq_connection", erlang:atom_to_list(BrokerGroup), BrokerHostName]),
-            {jamq_channel, start_link, [jamq_channel:name(BrokerGroup, BrokerHostName), BrokerHostName]},
-            permanent, 10000, worker, [jamq_channel]
-         } || {BrokerGroup, BrokerHosts} <-  BrokerSpecs, BrokerHostName <- BrokerHosts],
+    ChanservSup = {chanserv_sup, {jamq_chanserv_sup, start_link, [BrokerSpecs]}, permanent, infinity, supervisor, [jamq_chanserv_sup]},
 
-    PublishersSpecs = lists:map(
-        fun ({PublisherName, BrokersList}) when is_atom(PublisherName) ->
-            {
-                process_name(["jamq_publisher", erlang:atom_to_list(PublisherName)]),
-                {jamq_publisher, start_link, [PublisherName, [jamq_channel:name(PublisherName, B) || B <- BrokersList]]},
-                permanent, 10000, worker, [jamq_publisher]
-            }
-        end, BrokerSpecs),
+    PublishersSpecs = {publisher_sup, {jamq_publisher_sup, start_link, [BrokerSpecs]}, permanent, infinity, supervisor, [jamq_publisher_sup]},
 
-    {ok, {{one_for_one, 10, 10}, ChannelsSpecs ++ PublishersSpecs}}.
+    {ok, {{one_for_one, 10, 10}, [ChanservSup, PublishersSpecs]}}.
+
+children_specs({_, start_link, []}) ->
+    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
+    {ok, {_, Specs}} = init(BrokerSpecs),
+    Specs;
+children_specs({_, start_link, [BrokerSpecs]}) ->
+    {ok, {_, Specs}} = init(BrokerSpecs),
+    Specs.
 
 reconfigure() ->
     {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
     {ok, { _, ChildSpecs }} = init(BrokerSpecs),
-    code_update_mod:reconfigure_supervisor(?MODULE, ChildSpecs).
-
-start_new_channels() ->
-    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
-
-    NewSpecs =
-        [{
-            process_name(["jamq_connection", erlang:atom_to_list(BrokerGroup), BrokerHostName]),
-            {jamq_channel, start_link, [jamq_channel:name(BrokerGroup, BrokerHostName), BrokerHostName]},
-            permanent, 10000, worker, [jamq_channel]
-         } || {BrokerGroup, BrokerHosts} <-  BrokerSpecs, BrokerHostName <- BrokerHosts],
-
-    lists:foreach(
-        fun({Id, _, _, _, _, _} = S) ->
-            io:format("Starting ~p... ", [Id]),
-            case supervisor:start_child(?MODULE, S) of
-                {ok, _} -> io:format("ok~n");
-                {error, {already_started, _}} -> io:format("skip~n");
-                {error, Error} -> io:format("error (~1000000p)~n", [Error])
-            end
-        end, NewSpecs),
-
-    io:format("Channels restart finished~n").
-
+    code_update_mod:reconfigure_supervisor_tree(?MODULE, ChildSpecs).
 
 new_config_migration0() ->
     stream_server:reload_config(),
@@ -91,9 +64,6 @@ new_config_migration1() ->
     catch coser_sup:reconfigure(),
     io:format("Restarting all jamq subscribers...~n"),
     catch jamq_subscriber:kill_all_subscribers(code_update, 2000).
-
-process_name(List) ->
-    list_to_atom(string:join(List, "_")).
 
 get_brokers(Role) ->
     {ok, Config} = application:get_env(stream_server, amq_servers),
