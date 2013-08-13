@@ -6,7 +6,8 @@
   {applications, [
                   kernel,
                   stdlib,
-                  lager
+                  lager,
+                  dht_ring
                  ]},
   {mod, { jamq_app, []}},
   {env, []}

@@ -7,17 +7,20 @@
 %%
 -module(jamq).
 -export([
-    channel/1,        % -//-
+    channel/1,                  % -//-
     get_brokers/1,
-    publish/2,        % Publish something to an AMQ server.
-    publish/3,        % Publish something to an AMQ server, with a timeout.
-    async_publish/2,  % Publish something without waiting for confirmation.
-    subscribe/1,      % Subscribe to a topic, returns {ok, ServerRef}
+    publish/2,                  % Publish something to an AMQ server.
+    publish/3,                  % Publish something to an AMQ server, with a timeout.
+    publish_by_key/3,           % Publish something to an AMQ server by key.
+    publish_by_key/4,           % Publish something to an AMQ server by key, with a timeout.
+    async_publish/2,            % Publish something without waiting for confirmation.
+    async_publish_by_key/3,     % Publish something without waiting for confirmation by key.
+    subscribe/1,                % Subscribe to a topic, returns {ok, ServerRef}
     subscribe/2,
     sync_request/2,
     sync_request/3,
-    unsubscribe/1,    % Unsubscribe from a topic (takes ServerRef)
-    create_queue/1,   % Create a queue
+    unsubscribe/1,              % Unsubscribe from a topic (takes ServerRef)
+    create_queue/1,             % Create a queue
     unblogging_fun/1
 ]).
 
@@ -27,9 +30,15 @@ channel(Connection) -> jamq_channel:channel(Connection).
 
 get_brokers(Broker) -> jamq_supervisor:get_brokers(Broker).
 
+
 publish(Topic, Msg) -> jamq_publisher:publish(Topic, Msg).
 publish(Topic, Msg, Timeout) -> jamq_publisher:publish(Topic, Msg, Timeout).
+publish_by_key(Topic, Msg, Key) -> jamq_publisher:publish_by_key(Topic, Msg, Key).
+publish_by_key(Topic, Msg, Key, Timeout) -> jamq_publisher:publish_by_key(Topic, Msg, Key, Timeout).
+
 async_publish(Topic, Msg) -> jamq_publisher:async_publish(Topic, Msg).
+async_publish_by_key(Topic, Msg, Key) -> jamq_publisher:async_publish_by_key(Topic, Msg, Key).
+
 
 subscribe(Topic, Fun) ->
     jamq_subscriber_sup:start_link([{topic, Topic},{function, ?MODULE:unblogging_fun(Fun)}]).
