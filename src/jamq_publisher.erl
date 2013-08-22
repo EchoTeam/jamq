@@ -333,25 +333,18 @@ reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
     }.
 
 drain_queue(#state{channels = Channels, queue = Q, brokers = Brokers} = State) ->
-    {AvailableBrokers, DownBrokers} = lists:foldl(
-            fun (#chan{channel = undefined, broker = Broker}, {ABrokers, DBrokers}) -> {ABrokers, [Broker | DBrokers]};
-                (#chan{channel = C, publisher = undefined, broker = Broker}, {ABrokers, DBrokers}) -> {[Broker | ABrokers], DBrokers};
-                (_, Acc) -> Acc
-            end, {[], []}, Channels),
-    drain_queue_ll(rotate_brokers(AvailableBrokers), DownBrokers, [], State).
+    {AvailableBrokers, DownBrokers} = get_brokers(Channels, Brokers),
+    drain_queue_ll(AvailableBrokers, DownBrokers, [], State#state{brokers = rotate_brokers(Brokers)}).
 
 drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = Q} = State) when AvailableBrokers == [] orelse Q == [] ->
     State#state{queue = PassedMsgs ++ Q};
-drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = [{_, PubMsg} = Msg | Q], channels = Channels, ring = RingPid} = State) ->
-    Broker = case element(2, PubMsg) of
-        undefined -> hd(AvailableBrokers);
-        Key       -> Brokers = [Broker || {Broker, _} <- dht_ring:lookup(RingPid, Key)],
-                     get_broker(Brokers, AvailableBrokers, DownBrokers)
+drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = [Msg | Q], channels = Channels} = State) ->
+    Broker = get_broker_candidate(AvailableBrokers, DownBrokers, State),
+    {NewAvailableBrokers, NewPassedMsgs, NewChannels} = case Broker of
+        []     -> {AvailableBrokers, lists:append(PassedMsgs, [Msg]), Channels};
+        Broker -> {AvailableBrokers -- [Broker], PassedMsgs, send_to_channel(Broker, Msg, Channels)}
     end,
-    case Broker of
-        []     -> drain_queue_ll(AvailableBrokers, DownBrokers, lists:append(PassedMsgs, [Msg]), State#state{queue = Q});
-        Broker -> drain_queue_ll(AvailableBrokers -- [Broker], DownBrokers, PassedMsgs, State#state{queue = Q, channels = send_to_channel(Broker, Msg, Channels)})
-    end.
+    drain_queue_ll(NewAvailableBrokers, DownBrokers, NewPassedMsgs, State#state{queue = Q, channels = NewChannels}).
 
 send_to_channel(Broker, {_, PubMsg} = Msg, Channels) ->
     Chan = lists:keyfind(Broker, #chan.broker, Channels),
@@ -403,6 +396,17 @@ on_msg_sent(State = #state{sent_msg_count = N}) ->
 wrapped_msg(Msg) ->
     {wrapped, [{published_timestamp, now()}], Msg}.
 
+
+%% Brokers machinery
+
+get_broker_candidate(AvailableBrokers, DownBrokers, #state{queue = [{_, Msg} | _Q], ring = RingPid}) ->
+    Key = element(2, Msg),
+    case Key of
+        undefined -> hd(AvailableBrokers);
+        Key       -> Brokers = [Broker || {Broker, _} <- dht_ring:lookup(RingPid, Key)], %% if key exists use consistent hasing
+                     get_broker(Brokers, AvailableBrokers, DownBrokers)
+    end.
+
 get_broker([], AvailableBrokers, DownBrokers) -> [];
 get_broker([Broker | Brokers], AvailableBrokers, DownBrokers) ->
     case {lists:member(Broker, AvailableBrokers), lists:member(Broker, DownBrokers)} of
@@ -411,8 +415,18 @@ get_broker([Broker | Brokers], AvailableBrokers, DownBrokers) ->
         _              -> []
     end.
 
+get_brokers(Channels, Brokers) ->
+    {BusyBrokers, DownBrokers} = lists:foldl(
+            fun (#chan{channel = undefined, broker = Broker}, {BBrokers, DBrokers}) -> {BBrokers, [Broker | DBrokers]};
+                (#chan{channel = C, publisher = {_, _}, broker = Broker}, {BBrokers, DBrokers}) when is_pid(C) -> {[Broker | BBrokers], DBrokers};
+                (_, Acc) -> Acc
+            end, {[], []}, Channels),
+    AvailableBrokers = (Brokers -- BusyBrokers) -- DownBrokers,
+    {AvailableBrokers, DownBrokers}.
+
 rotate_brokers([]) -> [];
 rotate_brokers([Broker | Brokers]) -> lists:append(Brokers, [Broker]).
+
 
 format_status(_Opt, [_Dict, State]) ->
     [{data, [{"State", [{role, State#state.role},
