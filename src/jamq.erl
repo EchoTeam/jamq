@@ -79,10 +79,26 @@ delete_queue({BrokerRole, Q}) when is_atom(BrokerRole), is_list(Q) ->
             ok
         end).
 
-unblogging_fun(Fun) -> fun
-                ({blogged, _Lid, Msg}) -> Fun(Msg);
-                (Msg) -> Fun(Msg)
-        end.
+% TODO: What is this??? Remove it
+unblogging_fun(Fun) ->
+    case erlang:fun_info(Fun, arity) of
+        {_, 1} -> fun
+                    ({blogged, _Lid, Msg}) -> Fun(Msg);
+                    (Msg) -> Fun(Msg)
+                  end;
+        {_, 2} -> fun
+                    ({blogged, _Lid, Msg}, Redel) -> Fun(Msg, Redel);
+                    (Msg, Redel) -> Fun(Msg, Redel)
+                  end;
+        {_, 3} -> fun
+                    ({blogged, _Lid, Msg}, Chan, Tag) -> Fun(Msg, Chan, Tag);
+                    (Msg, Chan, Tag) -> Fun(Msg, Chan, Tag)
+                  end;
+        {_, 4} -> fun
+                    ({blogged, _Lid, Msg}, Redel, Chan, Tag) -> Fun(Msg, Redel, Chan, Tag);
+                    (Msg, Redel, Chan, Tag) -> Fun(Msg, Redel, Chan, Tag)
+                  end
+    end.
 
 sync_request(Topic, Msg) ->
     sync_request(Topic, Msg, ?DEFAULT_SYNC_REQUEST_TIMEOUT).
