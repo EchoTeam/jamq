@@ -30,6 +30,7 @@
 -define(gc_period, 1000).
 
 -define(DEFAULT_EXCHANGE, <<"jskit-bus">>).
+-define(RETRY_TIMEOUT, 5000).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 
@@ -43,13 +44,17 @@ start_link(Properties) ->
     qname = node(),
     exchange = undefined,
     qdurable = false,
-    qexclusive = true,
+    qexclusive = true, % queue.declare exclusive (queue will be deleted after client disconnection)
+    exclusive = false, % basic.consume exclusive
     qauto_delete = true,
     qbind_tag = <<$#>>,
     topic = <<$#>>,
     broker = undefined,
     channel_properties = [],
-    auto_ack = true
+    auto_ack = true,
+    queue_args = [],
+    status_callback = undefined,
+    redelivery_ind = false
     }).
 
 -record(state, {
@@ -61,14 +66,16 @@ start_link(Properties) ->
     ch_monref,
     ch_timer,
     subscription = #subscription{},
-    recv_msg_count = 0
+    recv_msg_count = 0,
+    supress_error = false
     }).
 
 init(Properties) ->
-    [Dur, Exc, AutoD, T, Q, QBT, Br, Ex, F, AutoAck]
+    [Dur, Exc, SubExc, AutoD, T, Q, QBT, Br, Ex, F, AutoAck, QArgs, StatusCallback, SupressError, ConnectDelay, RedeliveryInd]
         = [proplists:get_value(K, Properties, D) || {K, D} <- [
             {durable, undefined},
             {exclusive, undefined},
+            {subscribe_exclusive, false},
             {auto_delete, undefined},
             {topic, <<$#>>},
             {queue, transient},
@@ -78,7 +85,12 @@ init(Properties) ->
             {function, fun(Msg) ->
             lager:info("Message received: ~p", [Msg])
             end},
-            {auto_ack, true}
+            {auto_ack, true},
+            {queue_args, []},
+            {status_callback, undefined},
+            {supress_error, false},
+            {connect_delay, undefined},
+            {redelivery_ind, false}
         ] ],
     ChannelProps = [{K, P} ||
         K <- [prefetch_count],
@@ -115,23 +127,34 @@ init(Properties) ->
     FinalExclusiveQ = if Exc == undefined -> Exclusive; true -> Exc end,
     FinalAutoDeleteQ = if AutoD == undefined -> AutoDelete; true -> AutoD end,
 
-        SubscrDef = #subscription{
-                exchange = Ex,
-                qname = QName,
-                qdurable = FinalDurableQ,
-                qexclusive = FinalExclusiveQ,
-                qauto_delete = FinalAutoDeleteQ,
-                qbind_tag = iolist_to_binary(QBindTag),
-                topic = Topic,
-                broker = Br,
-                channel_properties = ChannelProps,
-                auto_ack = AutoAck
-        },
+    SubscrDef = #subscription{
+                    exchange = Ex,
+                    qname = QName,
+                    qdurable = FinalDurableQ,
+                    qexclusive = FinalExclusiveQ,
+                    exclusive = SubExc,
+                    qauto_delete = FinalAutoDeleteQ,
+                    qbind_tag = iolist_to_binary(QBindTag),
+                    topic = Topic,
+                    broker = Br,
+                    channel_properties = ChannelProps,
+                    auto_ack = AutoAck,
+                    queue_args = QArgs,
+                    status_callback = StatusCallback,
+                    redelivery_ind = RedeliveryInd
+                },
+
+    case ConnectDelay of
+        undefined -> ok;
+        _ when ConnectDelay >= ?RETRY_TIMEOUT -> ok;
+        _ -> erlang:send_after(ConnectDelay, self(), acquire_channel)
+    end,
 
     {ok, #state{
         function = F,
         subscription = SubscrDef,
-        ch_timer = start_acquire_channel_timer()
+        ch_timer = start_acquire_channel_timer(),
+        supress_error = SupressError
     } }.
 
 handle_call({unsubscribe}, _From, OldState) ->
@@ -143,38 +166,43 @@ handle_call({unsubscribe}, _From, OldState) ->
 
 handle_cast(_Msg, State) -> {noreply, State}.
 
-handle_info({#'basic.deliver'{delivery_tag = DeliveryTag},
+handle_info({#'basic.deliver'{delivery_tag = DeliveryTag, redelivered = Redelivered},
         #amqp_msg{payload = Payload}},
     #state{channel = Channel, messages = MsgsQ} = State) when is_pid(Channel) ->
     {noreply, dispatch(State#state{
-            messages = queue:in({DeliveryTag, Payload}, MsgsQ)
+            messages = queue:in({DeliveryTag, Redelivered, Payload}, MsgsQ)
         })};
 handle_info(#'basic.consume_ok'{}, State) -> {noreply, State};
 handle_info(#'basic.qos_ok'{}, State) -> {noreply, State};
 handle_info({#'basic.deliver'{}, _},
     #state{channel = undefined} = State) -> {noreply, State};
 handle_info(acquire_channel, #state{channel = undefined,
+        supress_error = SupressError,
         subscription = #subscription{
                 broker = BrokerRole,
                 qname = QName,
-                topic = Topic
+                topic = Topic,
+                exclusive = Exc,
+                status_callback = StatusCallback
             }
         } = State) ->
-    lager:info("AMQ subscriber ~p: acquire_channel timer expired", [self()]),
+    SupressError orelse lager:info("AMQ subscriber ~p: acquire_channel timer expired", [self()]),
     NewState = try jamq_channel:channel(BrokerRole) of
         Channel ->
             try
                 setup_queue(Channel, State),
-                lib_amqp:subscribe(Channel, QName, self(), Topic, false),
+                lib_amqp:subscribe(Channel, QName, self(), Topic, false, Exc),
                 lager:info("Subscribed to ~p through ~p", [QName, Channel]),
                 timer:cancel(State#state.ch_timer),
+                (StatusCallback =/= undefined) andalso StatusCallback(up),
                 State#state{channel = Channel,
                     ch_monref = erlang:monitor(process, Channel),
                     ch_timer = undefined }
             catch
                 _:SubError ->
                     catch lib_amqp:close_channel(Channel),
-                    lager:error("Subscription to ~p failed: ~p", [QName, SubError]),
+                    SupressError orelse lager:error("Subscription to ~p failed: ~p", [QName, SubError]),
+                    (StatusCallback =/= undefined) andalso StatusCallback(down),
                     State
             end
     catch _:_ -> State
@@ -186,7 +214,7 @@ handle_info({'DOWN', ERef, process, EPid, normal},
         #state{channel = Channel, messages = MsgsQ,
         message_processor = {EPid,ERef},
         subscription = #subscription{ auto_ack = AutoAck }} = State) ->
-    {{value, {DeliveryTag, _Payload}}, NewMsgsQ} = queue:out(MsgsQ),
+    {{value, {DeliveryTag, _, _Payload}}, NewMsgsQ} = queue:out(MsgsQ),
     case AutoAck of
         true -> lib_amqp:ack(Channel, DeliveryTag);
         false -> ok
@@ -201,8 +229,12 @@ handle_info(retry_dispatch, #state{messages_retry_timer = T} = State) when T /= 
     {noreply, dispatch(State#state{messages_retry_timer = undefined})};
 handle_info({'DOWN', MRef, process, ChanPid, _Info},
         #state{channel = ChanPid, ch_monref = MRef,
-                messages_retry_timer = RetryTimer
+                messages_retry_timer = RetryTimer,
+                subscription = #subscription{status_callback = StatusCallback}
             } = State) ->
+
+    (StatusCallback =/= undefined) andalso StatusCallback(down),
+
     case RetryTimer of
         undefined -> ok;
         _ -> erlang:cancel_timer(RetryTimer)
@@ -242,10 +274,12 @@ unsubscribe_and_close(_Reason, #state{channel = undefined} = State) -> State;
 unsubscribe_and_close(_Reason, #state{channel = Channel} = State) ->
     QBTag = (State#state.subscription)#subscription.qbind_tag,
     Topic = (State#state.subscription)#subscription.topic,
+    StatusCallback = (State#state.subscription)#subscription.status_callback,
     A = lib_amqp:unsubscribe(Channel, Topic),
     B = lib_amqp:close_channel(Channel),
     lager:info("Unsubscribed from ~p ~p: {~p, ~p} because of exit ~p",
         [QBTag, Topic, A, B, _Reason]),
+    (StatusCallback =/= undefined) andalso StatusCallback(down),
     State#state{channel = undefined}.
 
 setup_queue(Channel, #state{ subscription = #subscription{
@@ -255,8 +289,9 @@ setup_queue(Channel, #state{ subscription = #subscription{
                                                 qexclusive = Exc,
                                                 qauto_delete = AutoD,
                                                 qbind_tag = QBindTag,
-                                                channel_properties = ChannelProps}}) ->
-    jamq_api:declare_queue(Channel, QueueName, Dur, Exc, AutoD),
+                                                channel_properties = ChannelProps,
+                                                queue_args = Args}}) ->
+    jamq_api:declare_queue(Channel, QueueName, Dur, Exc, AutoD, Args),
 
     {'queue.bind_ok'} = lib_amqp:bind_queue(Channel, ExName, QueueName, QBindTag),
 
@@ -275,24 +310,31 @@ dispatch(#state{function = F,
         messages = MsgsQ, messages_retry_timer = undefined,
         message_processor = undefined,
         channel = Channel,
-               subscription = #subscription{ auto_ack = AutoAck }} = State) ->
+               subscription = #subscription{ auto_ack = AutoAck, redelivery_ind = NeedRedelInd}} = State) ->
     case queue:out(MsgsQ) of
-      {empty, _} -> State;
-      {{value, {DeliveryTag, Payload}}, _ShorterMsgsQ} ->
-          RestOfArgs = case AutoAck of
-              true -> [];
-              false -> [Channel, DeliveryTag]
-          end,
-          NF = case binary_to_term(Payload) of
-              {wrapped, Info, M} ->
-                  fun() ->
-                          lists:map(fun process_wrapped_info/1, Info),
-                          apply(F, [M | RestOfArgs])
-                  end;
-              AM ->
-                  fun() -> apply(F, [AM | RestOfArgs]) end
-          end,
-          State#state{message_processor = spawn_monitor(NF)}
+        {empty, _} -> State;
+        {{value, {DeliveryTag, Redelivered, Payload}}, _ShorterMsgsQ} ->
+            AutoAckArgs = case AutoAck of
+                true -> [];
+                false -> [Channel, DeliveryTag]
+            end,
+
+            RedelArgs =
+                case NeedRedelInd of
+                    true  -> [Redelivered];
+                    false -> []
+                end,
+
+            NF = case binary_to_term(Payload) of
+                {wrapped, Info, M} ->
+                    fun() ->
+                        lists:map(fun process_wrapped_info/1, Info),
+                        apply(F, [M | RedelArgs ++ AutoAckArgs])
+                    end;
+                M ->
+                    fun() -> apply(F, [M | RedelArgs ++ AutoAckArgs]) end
+            end,
+            State#state{message_processor = spawn_monitor(NF)}
     end;
 dispatch(#state{} = State) -> State.
 
@@ -311,7 +353,7 @@ status_of_state(State) ->
     ].
 
 start_acquire_channel_timer() ->
-    {ok, TRef} = timer:send_interval(5000, acquire_channel),
+    {ok, TRef} = timer:send_interval(?RETRY_TIMEOUT, acquire_channel),
     TRef.
 
 retry_handler(retry_message = Info, State) ->

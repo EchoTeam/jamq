@@ -139,9 +139,13 @@ subscribe(Channel, Q, Consumer, Tag) ->
     subscribe(Channel, Q, Consumer, Tag, true).
 
 subscribe(Channel, Q, Consumer, Tag, NoAck) ->
+    subscribe(Channel, Q, Consumer, Tag, NoAck, false).
+
+subscribe(Channel, Q, Consumer, Tag, NoAck, Exclusive) ->
     BasicConsume = #'basic.consume'{queue = Q,
                                     consumer_tag = Tag,
-                                    no_ack = NoAck},
+                                    no_ack = NoAck,
+                                    exclusive = Exclusive},
     #'basic.consume_ok'{consumer_tag = ConsumerTag} =
         amqp_channel:subscribe(Channel, BasicConsume, Consumer),
     ConsumerTag.

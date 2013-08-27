@@ -33,7 +33,11 @@ declare_permanent_queue(Channel, Q) ->
 declare_transient_queue(Channel, Q) ->
     declare_queue(Channel, Q, false, true, true).
 
+
 declare_queue(Channel, Q, Durable, Exclusive, AutoDelete) ->
+    declare_queue(Channel, Q, Durable, Exclusive, AutoDelete, []).
+
+declare_queue(Channel, Q, Durable, Exclusive, AutoDelete, Args) ->
     lib_amqp:declare_queue(Channel, #'queue.declare'{
         queue = Q,
         passive = false,
@@ -41,7 +45,7 @@ declare_queue(Channel, Q, Durable, Exclusive, AutoDelete) ->
         exclusive = Exclusive,
         auto_delete = AutoDelete,
         nowait = false,
-        arguments = []
+        arguments = Args
     }).
 
 delete_queue({BrokerRole, Q}) -> delete_queue(jamq:channel(BrokerRole), Q).
