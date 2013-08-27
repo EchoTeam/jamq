@@ -357,7 +357,7 @@ processes_by_initial_call(InitialCall) ->
         end, [], Procs).
 
 kill_all_subscribers_sup() ->
-    kill_all_subscribers_sup(2000).
+    kill_all_subscribers_sup(4000).
 
 kill_all_subscribers_sup(Timeout) ->
     Subs = all_subscribers_sups(),
