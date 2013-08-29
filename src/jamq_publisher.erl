@@ -199,14 +199,21 @@ terminate(Reason, #state{channels = Channels}) ->
         end, Channels).
 
 code_change(_OldVsn, State, _Extra) ->
-    NewState =
-        case State of
-            {state, _, _, _, _, _} ->
-                S = erlang:append_element(State, 0),
-                lager:info("Publisher state migration: ~p", [S]),
-                S;
-            #state{} -> State
-        end,
+    NewState = case State of
+        {state, Role, Brokers, Channels, ChannelsTimer, Q, Counter} ->
+            {ok, RingPid} = dht_ring:start_link([{Broker, undefined, Weight} || {Broker, Weight} <- weighting(Brokers)]),
+            NewQ = queue:to_list(Q),
+            S =  #state{ring = RingPid,
+                        role = Role,
+                        brokers = Brokers,
+                        channels = Channels,
+                        ch_timer = ChannelsTimer,
+                        queue = NewQ,
+                        sent_msg_count = Counter},
+            lager:info("Publisher state migration: ~p", [S]),
+            S;
+        #state{} -> State
+    end,
     {ok, NewState}.
 
 %%%===================================================================
