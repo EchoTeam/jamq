@@ -144,11 +144,7 @@ init(Properties) ->
                     redelivery_ind = RedeliveryInd
                 },
 
-    case ConnectDelay of
-        undefined -> ok;
-        _ when ConnectDelay >= ?RETRY_TIMEOUT -> ok;
-        _ -> erlang:send_after(ConnectDelay, self(), acquire_channel)
-    end,
+    (ConnectDelay < ?RETRY_TIMEOUT) andalso erlang:send_after(ConnectDelay, self(), acquire_channel),
 
     {ok, #state{
         function = F,
