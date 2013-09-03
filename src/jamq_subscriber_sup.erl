@@ -54,14 +54,17 @@ start_link(Properties) ->
 
 stop(SupRef) ->
     lists:foreach(
-        fun ({_, Child, _, _}) ->
-            supervisor:terminate_child(SupRef, Child)
+        fun ({Name, Child, _, _}) ->
+            jamq_subscriber:unsubscribe(Child),
+            catch supervisor:terminate_child(SupRef, Child),
+            catch supervisor:delete_child(SupRef, Name)
         end, supervisor:which_children(SupRef)),
 
-    erlang:exit(SupRef, kill),
+    % Terminate me with supervisor:terminate_child/2
+    %erlang:exit(SupRef, kill),
     ok.
 
 init(_) ->
-    {ok, {{simple_one_for_one, 10, 10}, [{jamq_subscriber, {jamq_subscriber, start_link, []}, permanent, 10000, worker, [jamq_subscriber]}]}}.
+    {ok, {{simple_one_for_one, 10, 10}, [{jamq_subscriber, {jamq_subscriber, start_link, []}, transient, 10000, worker, [jamq_subscriber]}]}}.
 
 
