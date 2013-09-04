@@ -358,7 +358,7 @@ retry_handler(Info, State) ->
     retry_handler(State, error, Info, 15000 + random:uniform(30000)).
 
 retry_handler(#state{messages = MsgsQ} = State, MessageType, Info, RetryInterval) ->
-    {_DeliveryTag, Payload} = queue:get(MsgsQ),
+    {_DeliveryTag, _, Payload} = queue:get(MsgsQ),
     lager:log(MessageType, [], "Processing message ~P in queue ~p failed: ~p",
         [binary_to_term(Payload), 3,
         (State#state.subscription)#subscription.qname,
