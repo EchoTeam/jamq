@@ -7,6 +7,10 @@
 
 -behavior(gen_server).
 
+-ifdef(TEST).
+-compile([export_all]). % used for test purpose only
+-endif.
+
 %% API
 -export([start_link/1, % obsolete
          start_link/2]).
