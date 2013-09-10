@@ -6,9 +6,10 @@
 %% vim: set ts=4 sts=4 sw=4 et:
 %%
 -module(jamq).
+
+-include_lib("amqp_client/include/amqp_client.hrl").
+
 -export([
-    channel/1,                  % -//-
-    get_brokers/1,
     publish/2,                  % Publish something to an AMQ server.
     publish/3,                  % Publish something to an AMQ server, with a timeout.
     publish_by_key/3,           % Publish something to an AMQ server by key.
@@ -21,14 +22,12 @@
     sync_request/3,
     unsubscribe/1,              % Unsubscribe from a topic (takes ServerRef)
     create_queue/1,             % Create a queue
+    delete_queue/1,             % Delete a queue
     unblogging_fun/1
 ]).
 
+
 -define(DEFAULT_SYNC_REQUEST_TIMEOUT, 10000).
-
-channel(Connection) -> jamq_channel:channel(Connection).
-
-get_brokers(Broker) -> jamq_supervisor:get_brokers(Broker).
 
 
 publish(Topic, Msg) -> jamq_publisher:publish(Topic, Msg).
@@ -53,17 +52,32 @@ subscribe(Topic) when is_list(Topic); is_binary(Topic) ->
 
 unsubscribe(ServerRef) -> jamq_subscriber_sup:stop(ServerRef).
 
-create_queue({BrokerRole, QueueName})
-        when is_atom(BrokerRole), is_list(QueueName) ->
-    jsk_async:complete(fun() ->
-        create_queue(jamq:channel(BrokerRole), QueueName) end).
+create_queue({BrokerRole, QueueName}) when is_atom(BrokerRole), is_list(QueueName) ->
+    jsk_async:complete(
+        fun() ->
+            Brokers = jamq_api:get_brokers(BrokerRole),
+            lists:foreach(
+                fun (B) ->
+                    Channel = jamq_channel:channel(jamq_channel:name(BrokerRole, B)),
+                    Queue = list_to_binary(QueueName),
+                    jamq_api:declare_permanent_queue(Channel, Queue),
+                    #'queue.bind_ok'{} =
+                        lib_amqp:bind_queue(Channel, <<"jskit-bus">>, Queue, Queue)
+                end, Brokers),
+            ok
+        end).
 
-create_queue(Channel, QueueName) ->
-        Queue = list_to_binary(QueueName),
-        jamq_api:declare_permanent_queue(Channel, Queue),
-        {'queue.bind_ok'} =
-                lib_amqp:bind_queue(Channel, <<"jskit-bus">>, Queue, Queue),
-        ok.
+delete_queue({BrokerRole, Q}) when is_atom(BrokerRole), is_list(Q) ->
+    jsk_async:complete(
+        fun () ->
+            Brokers = jamq_api:get_brokers(BrokerRole),
+            lists:foreach(
+                fun (B) ->
+                    Channel = jamq_channel:channel(jamq_channel:name(BrokerRole, B)),
+                    #'queue.delete_ok'{} = jamq_api:delete_queue(Channel, Q)
+                end, Brokers),
+            ok
+        end).
 
 unblogging_fun(Fun) -> fun
                 ({blogged, _Lid, Msg}) -> Fun(Msg);

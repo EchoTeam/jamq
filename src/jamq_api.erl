@@ -8,6 +8,8 @@
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 
+get_brokers(Broker) -> jamq_supervisor:get_brokers(Broker).
+
 declare_permanent_exchange(Channel, X, Type) ->
     amqp_channel:call(Channel, #'exchange.declare'{
         exchange = X,
@@ -44,9 +46,7 @@ declare_queue(Channel, Q, Durable, Exclusive, AutoDelete) ->
         arguments = []
     }).
 
-delete_queue({BrokerRole, Q}) -> delete_queue(jamq:channel(BrokerRole), Q).
-
-delete_queue(Channel, Q) -> 
+delete_queue(Channel, Q) ->
         lib_amqp:delete_queue(Channel, type_utils:to_binary(Q)).
 
 publish(Channel, Message) ->

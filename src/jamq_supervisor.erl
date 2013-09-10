@@ -14,8 +14,6 @@
     start_link/1,
     reconfigure/0,
     get_brokers/1, % temporarily function
-    new_config_migration0/0,
-    new_config_migration1/0,
     children_specs/1
 ]).
 
@@ -47,23 +45,6 @@ reconfigure() ->
     {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
     {ok, { _, ChildSpecs }} = init(BrokerSpecs),
     code_update_mod:reconfigure_supervisor_tree(?MODULE, ChildSpecs).
-
-new_config_migration0() ->
-    stream_server:reload_config(),
-    catch reconfigure(),
-    catch as_pipeline_sup:restart_children().
-
-new_config_migration1() ->
-    stream_server:reload_config(),
-    io:format("Reconfiguring jamq_sup...~n"),
-    catch reconfigure(),
-    catch echo_view_config_server:reload(),
-    io:format("Restarting as_pipeline_children...~n"),
-    catch as_pipeline_sup:restart_children(),
-    io:format("Reconfiguring coser_sup...~n"),
-    catch coser_sup:reconfigure(),
-    io:format("Restarting all jamq subscribers...~n"),
-    catch jamq_subscriber:kill_all_subscribers(code_update, 2000).
 
 get_brokers(Role) ->
     {ok, Config} = application:get_env(stream_server, amq_servers),
