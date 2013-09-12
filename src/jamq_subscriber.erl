@@ -82,9 +82,10 @@ init(Properties) ->
             {queue_bind_tag, undefined},
             {broker, undefined},
             {exchange, ?DEFAULT_EXCHANGE},
-            {function, fun(Msg) ->
-            lager:info("Message received: ~p", [Msg])
-            end},
+            {function,
+                fun(Msg) ->
+                    lager:error("Unhandled amqp message: ~p", [Msg])
+                end},
             {auto_ack, true},
             {queue_args, []},
             {status_callback, undefined},
@@ -302,7 +303,7 @@ setup_queue(Channel, #state{ subscription = #subscription{
 %% Using a separate process ensures that this server does not accumulate
 %% garbage during processing, such as leaked process-bound locks, channels,
 %% dictionary items, and stuff.
-dispatch(#state{function = F,
+dispatch(#state{function = Callback,
         messages = MsgsQ, messages_retry_timer = undefined,
         message_processor = undefined,
         channel = Channel,
@@ -321,15 +322,20 @@ dispatch(#state{function = F,
                     false -> []
                 end,
 
-            NF = case binary_to_term(Payload) of
-                {wrapped, Info, M} ->
-                    fun() ->
-                        lists:map(fun process_wrapped_info/1, Info),
-                        apply(F, [M | RedelArgs ++ AutoAckArgs])
-                    end;
-                M ->
-                    fun() -> apply(F, [M | RedelArgs ++ AutoAckArgs]) end
-            end,
+            {Info, Message} =
+                case binary_to_term(Payload) of
+                    {wrapped, I, Msg} -> {I, Msg};
+                    Msg -> {[], Msg}
+                end,
+
+            NF = fun() ->
+                    lists:map(fun process_wrapped_info/1, Info),
+                    case Callback of
+                        {M,F,A} -> apply(M, F, A ++ [Message | RedelArgs ++ AutoAckArgs]);
+                        _ when is_function(Callback) -> erlang:apply(Callback, [Message | RedelArgs ++ AutoAckArgs])
+                    end
+                 end,
+
             State#state{message_processor = spawn_monitor(NF)}
     end;
 dispatch(#state{} = State) -> State.

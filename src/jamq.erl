@@ -10,6 +10,8 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 -export([
+    create_queue/1,             % Create a queue
+    delete_queue/1,             % Delete a queue
     publish/2,                  % Publish something to an AMQ server.
     publish/3,                  % Publish something to an AMQ server, with a timeout.
     publish_by_key/3,           % Publish something to an AMQ server by key.
@@ -20,10 +22,7 @@
     subscribe/2,
     sync_request/2,
     sync_request/3,
-    unsubscribe/1,              % Unsubscribe from a topic (takes ServerRef)
-    create_queue/1,             % Create a queue
-    delete_queue/1,             % Delete a queue
-    unblogging_fun/1
+    unsubscribe/1               % Unsubscribe from a topic (takes ServerRef)
 ]).
 
 
@@ -40,13 +39,9 @@ async_publish_by_key(Topic, Msg, Key) -> jamq_publisher:async_publish_by_key(Top
 
 
 subscribe(Topic, Fun) ->
-    jamq_subscriber_sup:start_link([{topic, Topic},{function, ?MODULE:unblogging_fun(Fun)}]).
+    jamq_subscriber_sup:start_link([{topic, Topic},{function, Fun}]).
 subscribe([Option|_] = Options) when is_tuple(Option) ->
-        FixedOptions = case proplists:get_value(function, Options) of
-                undefined -> Options;
-                Fun -> lists:keyreplace(function, 1, Options, {function, ?MODULE:unblogging_fun(Fun)})
-        end,
-        jamq_subscriber_sup:start_link(FixedOptions);
+    jamq_subscriber_sup:start_link(Options);
 subscribe(Topic) when is_list(Topic); is_binary(Topic) ->
     jamq_subscriber_sup:start_link([{topic, Topic}]).
 
@@ -78,27 +73,6 @@ delete_queue({BrokerRole, Q}) when is_atom(BrokerRole), is_list(Q) ->
                 end, Brokers),
             ok
         end).
-
-% TODO: What is this??? Remove it
-unblogging_fun(Fun) ->
-    case erlang:fun_info(Fun, arity) of
-        {_, 1} -> fun
-                    ({blogged, _Lid, Msg}) -> Fun(Msg);
-                    (Msg) -> Fun(Msg)
-                  end;
-        {_, 2} -> fun
-                    ({blogged, _Lid, Msg}, Redel) -> Fun(Msg, Redel);
-                    (Msg, Redel) -> Fun(Msg, Redel)
-                  end;
-        {_, 3} -> fun
-                    ({blogged, _Lid, Msg}, Chan, Tag) -> Fun(Msg, Chan, Tag);
-                    (Msg, Chan, Tag) -> Fun(Msg, Chan, Tag)
-                  end;
-        {_, 4} -> fun
-                    ({blogged, _Lid, Msg}, Redel, Chan, Tag) -> Fun(Msg, Redel, Chan, Tag);
-                    (Msg, Redel, Chan, Tag) -> Fun(Msg, Redel, Chan, Tag)
-                  end
-    end.
 
 sync_request(Topic, Msg) ->
     sync_request(Topic, Msg, ?DEFAULT_SYNC_REQUEST_TIMEOUT).
