@@ -343,7 +343,7 @@ reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
         ch_timer = NewTimer
     }.
 
-drain_queue(#state{queue = []} = State) ->
+drain_queue(#state{queue = Q, brokers = Brokers} = State) when Q == [] orelse Brokers == [] ->
     State;
 drain_queue(#state{channels = Channels, queue = Q, brokers = Brokers} = State) ->
     {AvailableBrokers, DownBrokers} = get_brokers(Channels, Brokers),
@@ -448,12 +448,17 @@ format_status(_Opt, [_Dict, State]) ->
                         {sent_message_count, State#state.sent_msg_count}]}]}].
 
 log_message(Topic, Msg) ->
-    lager:error("Trying to publish large message to ~p...", [Topic]),
-    try
-        disk_log:open([{name, log}, {file, "/echo/logs/large_publish.log"}]),
-        disk_log:alog(log, {Topic, Msg}),
-        disk_log:close(log)
-    catch C:R ->
-        lager:error("Error when writing log: ~p", [{C,R}])
+    case application:get_env(jamq, large_msg_log) of
+        undefined ->
+            lager:error("Trying to publish large message to ~p..., the log file isn't specified", [Topic]);
+        {ok, Log} ->
+            lager:error("Trying to publish large message to ~p...", [Topic]),
+            try
+                disk_log:open([{name, log}, {file, Log}]),
+                disk_log:alog(log, {Topic, Msg}),
+                disk_log:close(log)
+            catch C:R ->
+                lager:error("Error when writing log: ~p", [{C,R}])
+            end
     end.
 
