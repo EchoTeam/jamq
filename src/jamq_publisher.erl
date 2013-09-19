@@ -343,6 +343,8 @@ reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
         ch_timer = NewTimer
     }.
 
+drain_queue(#state{queue = []} = State) ->
+    State;
 drain_queue(#state{channels = Channels, queue = Q, brokers = Brokers} = State) ->
     {AvailableBrokers, DownBrokers} = get_brokers(Channels, Brokers),
     drain_queue_ll(AvailableBrokers, DownBrokers, [], State#state{brokers = rotate_brokers(Brokers)}).
