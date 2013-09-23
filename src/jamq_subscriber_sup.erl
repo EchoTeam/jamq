@@ -7,13 +7,13 @@
 
 
 -export([
-    start_link/1,
+    start_link/2,
     init/1,
     stop/1
 ]).
 
 
-start_link(Properties) ->
+start_link(Ref, Properties) ->
     try
         BrokerGroup = proplists:get_value(broker_group, Properties, undefined),
 
@@ -27,13 +27,11 @@ start_link(Properties) ->
                     [jamq_channel:name(BrokerGroup, H) || H <- Hosts]
             end,
 
-        {ok, Sup} =
-            case lists:keyfind(server_name, 1, Properties) of
-                {server_name, {A, _} = ServerName} when is_atom(A) ->
-                    supervisor:start_link(ServerName, ?MODULE, []);
-                false ->
-                    supervisor:start_link(?MODULE, [])
-            end,
+        Owner = proplists:get_value(owner, Properties, proplists:get_value(default_owner, Properties, self())),
+
+        {ok, TopSup} = supervisor:start_link(?MODULE, {top, Owner, Ref}),
+
+        {ok, Sup} = supervisor:start_child(TopSup, {children, {supervisor, start_link, [?MODULE, children]}, permanent, infinity, supervisor, [?MODULE]}),
 
         lager:info("Starting subscribers for BrokerGroup ~p(~p), chan_servers: ~p", [BrokerGroup, proplists:get_value(broker, Properties, undefined), ChanServs]),
 
@@ -45,7 +43,7 @@ start_link(Properties) ->
                     {ok, _} = supervisor:start_child(Sup, [SubProps])
             end, ChanServs),
 
-        {ok, Sup}
+        {ok, TopSup}
     catch
         _:E ->
             lager:error("jamq_subscriber_sup start failed~nProperties: ~p~nError: ~p~nStacktrace: ~p", [Properties, E, erlang:get_stacktrace()]),
@@ -53,10 +51,18 @@ start_link(Properties) ->
     end.
 
 stop(SupRef) ->
+    C = supervisor:which_children(SupRef),
+    {_, ChSup, _, _} = lists:keyfind(children, 1, C),
+
     lists:foreach(
-        fun ({Name, Child, _, _}) ->
+        fun ({_, Child, _, _}) ->
             jamq_subscriber:unsubscribe(Child),
-            catch supervisor:terminate_child(SupRef, Child),
+            catch supervisor:terminate_child(ChSup, Child)
+        end, supervisor:which_children(ChSup)),
+
+    lists:foreach(
+        fun ({Name, _, _, _}) ->
+            catch supervisor:terminate_child(SupRef, Name),
             catch supervisor:delete_child(SupRef, Name)
         end, supervisor:which_children(SupRef)),
 
@@ -64,7 +70,9 @@ stop(SupRef) ->
     %erlang:exit(SupRef, kill),
     ok.
 
-init(_) ->
+init({top, Owner, Ref}) ->
+    {ok, {{one_for_one, 0, 1}, [{subscriber_monitor, {jamq_subscriber_mon, start_link, [Owner, self(), Ref]}, permanent, 10000, worker, [jamq_subscriber_mon]}]}};
+init(children) ->
     {ok, {{simple_one_for_one, 10, 10}, [{jamq_subscriber, {jamq_subscriber, start_link, []}, transient, 10000, worker, [jamq_subscriber]}]}}.
 
 

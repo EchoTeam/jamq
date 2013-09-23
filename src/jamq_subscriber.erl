@@ -93,10 +93,12 @@ init(Properties) ->
             {connect_delay, undefined},
             {redelivery_ind, false}
         ] ],
+
     ChannelProps = [{K, P} ||
         K <- [prefetch_count],
         P <- [proplists:get_value(K, Properties)],
         P /= undefined],
+
     Topic = iolist_to_binary(T),
     {{Durable, Exclusive, AutoDelete},
             QName, QBindTag} = if
@@ -245,21 +247,14 @@ handle_info({'DOWN', MRef, process, ChanPid, _Info},
             message_processor = undefined,
             messages_retry_timer = undefined
         }};
+
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
 
 terminate(Reason, State) -> unsubscribe_and_close(Reason, State).
 
 code_change(_OldVsn, State, _Extra) ->
-    NewState =
-        case State of
-            {state, _, _, _, _, _, _, _, _} ->
-                S = erlang:append_element(State, 0),
-                lager:info("Subscriber state migration: ~p", [S]),
-                S;
-            #state{} -> State
-        end,
-    {ok, NewState}.
+    {ok, State}.
 
 
 format_status(_Opt, [_Dict, State]) ->
@@ -407,7 +402,8 @@ kill_all_subscribers_sup(Timeout) ->
     Subs = all_subscribers_sups(),
     io:format("Going to stop ~p subscriber supervisors~n", [erlang:length(Subs)]),
     [begin
-        jamq_subscriber_sup:stop(P),
+        catch jamq_subscriber_sup:stop(P),
+        catch erlang:exit(P, kill),
         io:format("."),
         timer:sleep(Timeout)
     end||P <- Subs].

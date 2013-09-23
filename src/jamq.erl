@@ -20,6 +20,8 @@
     async_publish_by_key/3,     % Publish something without waiting for confirmation by key.
     subscribe/1,                % Subscribe to a topic, returns {ok, ServerRef}
     subscribe/2,
+    start_subscriber/1,
+    stop_subscriber/1,
     sync_request/2,
     sync_request/3,
     unsubscribe/1               % Unsubscribe from a topic (takes ServerRef)
@@ -39,13 +41,20 @@ async_publish_by_key(Topic, Msg, Key) -> jamq_publisher:async_publish_by_key(Top
 
 
 subscribe(Topic, Fun) ->
-    jamq_subscriber_sup:start_link([{topic, Topic},{function, Fun}]).
+    subscribe([{topic, Topic},{function, Fun}]).
 subscribe([Option|_] = Options) when is_tuple(Option) ->
-    jamq_subscriber_sup:start_link(Options);
+    jamq_client_mon:start_link(Options);
 subscribe(Topic) when is_list(Topic); is_binary(Topic) ->
-    jamq_subscriber_sup:start_link([{topic, Topic}]).
+    subscribe([{topic, Topic}]).
 
-unsubscribe(ServerRef) -> jamq_subscriber_sup:stop(ServerRef).
+unsubscribe(Ref) ->
+    jamq_client_mon:stop(Ref).
+
+start_subscriber(Options) ->
+    jamq_subscriber_man:start_subscriber(Options).
+
+stop_subscriber(Ref) ->
+    jamq_subscriber_man:stop_subscriber(Ref).
 
 create_queue({BrokerRole, QueueName}) when is_atom(BrokerRole), is_list(QueueName) ->
     jsk_async:complete(
@@ -85,3 +94,5 @@ sync_request(Topic, Msg, Timeout) ->
     after Timeout ->
         {error, timeout}
     end.
+
+
