@@ -78,7 +78,11 @@ delete_queue({BrokerRole, Q}) when is_atom(BrokerRole), is_list(Q) ->
             lists:foreach(
                 fun (B) ->
                     Channel = jamq_channel:channel(jamq_channel:name(BrokerRole, B)),
-                    #'queue.delete_ok'{} = jamq_api:delete_queue(Channel, Q)
+                    try
+                        #'queue.delete_ok'{} = jamq_api:delete_queue(Channel, Q)
+                    catch
+                        exit:{{shutdown, {server_initiated_close,404, _}}, _} -> ok
+                    end
                 end, Brokers),
             ok
         end).
