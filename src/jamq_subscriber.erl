@@ -71,6 +71,9 @@ start_link(Properties) ->
     }).
 
 init(Properties) ->
+
+    erlang:process_flag(trap_exit, true),
+
     [Dur, Exc, SubExc, AutoD, T, Q, QBT, Br, Ex, F, AutoAck, QArgs, StatusCallback, SupressError, ConnectDelay, RedeliveryInd]
         = [proplists:get_value(K, Properties, D) || {K, D} <- [
             {durable, undefined},
@@ -247,6 +250,9 @@ handle_info({'DOWN', MRef, process, ChanPid, _Info},
             message_processor = undefined,
             messages_retry_timer = undefined
         }};
+
+handle_info({'EXIT', _From, _Reason}, State) ->
+    {stop, normal, unsubscribe_and_close(unexpected_exit, State)};
 
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.

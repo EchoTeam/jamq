@@ -5,27 +5,45 @@
 
 -behaviour(supervisor).
 
--include("jamq.hrl").
-
 -export([
     start_link/0,
-    start_subscriber/2,
+    start_subscriber/1,
     stop_subscriber/1,
     init/1
 ]).
 
-
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
-start_subscriber(Ref, Options) ->
-    supervisor:start_child(?MODULE, [Ref, Options]).
+start_subscriber(Options) ->
+    Ref = erlang:make_ref(),
+    case supervisor:start_child(?MODULE, {Ref, {jamq_subscriber_sup, start_link, [Options]}, permanent, infinity, supervisor, [jamq_subscriber_sup]}) of
+        {ok, _} -> {ok, Ref};
+        Error -> Error
+    end.
 
-stop_subscriber(Ref) ->
-    catch jamq_subscriber_sup:stop(Ref),
-    supervisor:terminate_child(?MODULE, Ref).
+stop_subscriber(Ref) when is_reference(Ref) ->
+    case lists:keyfind(Ref, 1, supervisor:which_children(?MODULE)) of
+        {Ref, Pid, _, _} when is_pid(Pid) ->
+            catch jamq_subscriber_sup:stop(Pid),
+            catch supervisor:terminate_child(?MODULE, Ref),
+            ok = supervisor:delete_child(?MODULE, Ref);
+        {Ref, undefined, _, _} ->
+            catch supervisor:terminate_child(?MODULE, Ref),
+            ok = supervisor:delete_child(?MODULE, Ref);
+        _ -> ok
+    end;
+
+stop_subscriber(Pid) when is_pid(Pid) ->
+    catch jamq_subscriber_sup:stop(Pid),
+    case lists:keyfind(Pid, 2, supervisor:which_children(?MODULE)) of
+        {Ref, Pid, _, _} when is_pid(Pid) ->
+            catch supervisor:terminate_child(?MODULE, Ref),
+            ok = supervisor:delete_child(?MODULE, Ref);
+        _ -> ok
+    end.
 
 init(_) ->
-    {ok, {{simple_one_for_one, ?JAMQ_SUBSCRIBERS_MAX_R, ?JAMQ_SUBSCRIBERS_MAX_T}, [{jamq_subscriber_sup, {jamq_subscriber_sup, start_link, []}, permanent, infinity, supervisor, [jamq_subscriber_sup]}]}}.
+    {ok, {{one_for_one, 10, 10}, []}}.
 
 

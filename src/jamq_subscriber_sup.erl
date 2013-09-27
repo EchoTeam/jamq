@@ -7,43 +7,15 @@
 
 
 -export([
-    start_link/2,
+    start_link/1,
     init/1,
     stop/1
 ]).
 
-
-start_link(Ref, Properties) ->
+start_link(Properties) ->
     try
-        BrokerGroup = proplists:get_value(broker_group, Properties, undefined),
-
-        ChanServs =
-            case BrokerGroup of
-                undefined ->
-                    ChanServ = proplists:get_value(broker, Properties, undefined),
-                    [ChanServ];
-                _ ->
-                    Hosts = jamq_supervisor:get_brokers(BrokerGroup),
-                    [jamq_channel:name(BrokerGroup, H) || H <- Hosts]
-            end,
-
         Owner = proplists:get_value(owner, Properties, proplists:get_value(default_owner, Properties, self())),
-
-        {ok, TopSup} = supervisor:start_link(?MODULE, {top, Owner, Ref}),
-
-        {ok, Sup} = supervisor:start_child(TopSup, {children, {supervisor, start_link, [?MODULE, children]}, permanent, infinity, supervisor, [?MODULE]}),
-
-        lager:info("Starting subscribers for BrokerGroup ~p(~p), chan_servers: ~p", [BrokerGroup, proplists:get_value(broker, Properties, undefined), ChanServs]),
-
-        lists:foreach(
-            fun (undefined) ->
-                    erlang:error({missing, broker});
-                (CS) ->
-                    SubProps = lists:keystore(broker, 1, Properties, {broker, CS}),
-                    {ok, _} = supervisor:start_child(Sup, [SubProps])
-            end, ChanServs),
-
-        {ok, TopSup}
+        {ok, _} = supervisor:start_link(?MODULE, {top, Owner, Properties})
     catch
         _:E ->
             lager:error("jamq_subscriber_sup start failed~nProperties: ~p~nError: ~p~nStacktrace: ~p", [Properties, E, erlang:get_stacktrace()]),
@@ -66,13 +38,36 @@ stop(SupRef) ->
             catch supervisor:delete_child(SupRef, Name)
         end, supervisor:which_children(SupRef)),
 
-    % Terminate me with supervisor:terminate_child/2
-    %erlang:exit(SupRef, kill),
     ok.
 
-init({top, Owner, Ref}) ->
-    {ok, {{one_for_one, 0, 1}, [{subscriber_monitor, {jamq_subscriber_mon, start_link, [Owner, self(), Ref]}, permanent, 10000, worker, [jamq_subscriber_mon]}]}};
-init(children) ->
-    {ok, {{simple_one_for_one, 10, 10}, [{jamq_subscriber, {jamq_subscriber, start_link, []}, transient, 10000, worker, [jamq_subscriber]}]}}.
+init({top, Owner, Properties}) ->
+    {ok, {{one_for_one, 10, 10}, [
+        {monitor,  {jamq_subscriber_mon, start_link, [Owner, self()]}, permanent, 10000, worker, [jamq_subscriber_mon]},
+        {children, {supervisor, start_link, [?MODULE, {children, Properties}]}, permanent, infinity, supervisor, [?MODULE]}
+    ]}};
+
+init({children, Properties}) ->
+
+    BrokerGroup = proplists:get_value(broker_group, Properties, undefined),
+
+    ChanServs =
+        case BrokerGroup of
+            undefined ->
+                ChanServ = proplists:get_value(broker, Properties, undefined),
+                [ChanServ];
+            _ ->
+                Hosts = jamq_supervisor:get_brokers(BrokerGroup),
+                [jamq_channel:name(BrokerGroup, H) || H <- Hosts]
+        end,
+
+   Specs = lists:map(
+            fun (undefined) ->
+                    erlang:error({missing, broker});
+                (CS) ->
+                    SubProps = lists:keystore(broker, 1, Properties, {broker, CS}),
+                    {CS, {jamq_subscriber, start_link, [SubProps]}, transient, 10000, worker, [jamq_subscriber]}
+            end, ChanServs),
+
+    {ok, {{one_for_one, 10, 10}, Specs}}.
 
 

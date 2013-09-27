@@ -51,10 +51,10 @@ unsubscribe(Ref) ->
     jamq_client_mon:stop(Ref).
 
 start_subscriber(Options) ->
-    jamq_subscriber_man:start_subscriber(Options).
+    jamq_subscriber_top_sup:start_subscriber(Options).
 
 stop_subscriber(Ref) ->
-    jamq_subscriber_man:stop_subscriber(Ref).
+    jamq_subscriber_top_sup:stop_subscriber(Ref).
 
 create_queue({BrokerRole, QueueName}) when is_atom(BrokerRole), is_list(QueueName) ->
     jsk_async:complete(

@@ -6,7 +6,7 @@
 -behavior(gen_server).
 
 -export([
-    start_link/3
+    start_link/2
 ]).
 
 -export([
@@ -19,19 +19,16 @@
 ]).
 
 -record(state, {
-    owner     = undefined,
     owner_mon = undefined,
-    sup_pid   = undefined,
-    ref       = undefined
+    sup_pid   = undefined
     }).
 
-start_link(Owner, SupPid, Ref) ->
-    gen_server:start_link(?MODULE, [Owner, SupPid, Ref], []).
+start_link(Owner, SupPid) ->
+    gen_server:start_link(?MODULE, [Owner, SupPid], []).
 
-init([Owner, SupPid, Ref]) ->
+init([Owner, SupPid]) ->
     Mon = erlang:monitor(process, Owner),
-    jamq_subscriber_man:child_restarted(Ref, SupPid),
-    {ok, #state{owner = Owner, owner_mon = Mon, sup_pid = SupPid, ref = Ref}}.
+    {ok, #state{owner_mon = Mon, sup_pid = SupPid}}.
 
 handle_call(Req, _From, State) ->
     lager:error("Unhandled call ~p", [Req]),
@@ -41,8 +38,8 @@ handle_cast(Req, State) ->
     lager:error("Unhandled cast ~p", [Req]),
     {noreply, State}.
 
-handle_info({'DOWN', MonRef, process, _, _}, State = #state{owner_mon = MonRef, sup_pid = Sup, ref = Ref}) ->
-    jamq_subscriber_man:remove_subscriber(Ref, Sup),
+handle_info({'DOWN', MonRef, process, _, _}, State = #state{owner_mon = MonRef, sup_pid = Sup}) ->
+    spawn(fun () -> jamq_subscriber_top_sup:stop_subscriber(Sup) end),
     {noreply, State};
 
 handle_info(Req, State = #state{}) ->
