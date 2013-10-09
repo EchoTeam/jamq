@@ -251,8 +251,11 @@ handle_info({'DOWN', MRef, process, ChanPid, _Info},
             messages_retry_timer = undefined
         }};
 
-handle_info({'EXIT', _From, _Reason}, State) ->
-    {stop, normal, unsubscribe_and_close(unexpected_exit, State)};
+handle_info({'EXIT', _From, normal}, State) ->
+    {noreply, State};
+
+handle_info({'EXIT', _From, Reason}, State) ->
+    {stop, Reason, unsubscribe_and_close(unexpected_exit, State)};
 
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
