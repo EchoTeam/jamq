@@ -65,7 +65,7 @@ init({children, Properties}) ->
                     erlang:error({missing, broker});
                 (CS) ->
                     SubProps = lists:keystore(broker, 1, Properties, {broker, CS}),
-                    {CS, {jamq_subscriber, start_link, [SubProps]}, transient, 10000, worker, [jamq_subscriber]}
+                    {CS, {jamq_subscriber, start_link, [SubProps]}, permanent, 10000, worker, [jamq_subscriber]}
             end, ChanServs),
 
     {ok, {{one_for_one, 10, 10}, Specs}}.

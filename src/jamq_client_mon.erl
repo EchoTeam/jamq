@@ -20,7 +20,8 @@
 ]).
 
 -record(state, {
-    sub_ref = undefined
+    sub_ref = undefined,
+    mon = undefined
     }).
 
 start_link(Options) ->
@@ -37,7 +38,8 @@ stop(Ref) ->
 init([Options]) ->
     try
         {ok, Ref} = jamq:start_subscriber([{owner, self()}|Options]),
-        {ok, #state{sub_ref = Ref}}
+        Mon = erlang:monitor(process, jamq_subscriber_top_sup),
+        {ok, #state{sub_ref = Ref, mon = Mon}}
     catch
         _:E ->
             lager:error("Start jamq client monitor failed: ~p~nOptions: ~p~nStacktrace: ~p", [E, Options, erlang:get_stacktrace()]),
@@ -55,6 +57,9 @@ handle_call(Req, _From, State) ->
 handle_cast(Req, State) ->
     lager:error("Unhandled cast ~p", [Req]),
     {noreply, State}.
+
+handle_info({'DOWN', Mon, process, _, Reason}, State = #state{mon = Mon}) ->
+    {stop, {jamq_supervisor_down, Reason}, State};
 
 handle_info(Req, State = #state{}) ->
     lager:error("Unhandled info ~p", [Req]),

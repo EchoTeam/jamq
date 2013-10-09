@@ -45,9 +45,9 @@ children_specs({_, start_link, [BrokerSpecs]}) ->
     Specs.
 
 reconfigure() ->
-    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
-    {ok, { _, ChildSpecs }} = init(BrokerSpecs),
-    code_update_mod:reconfigure_supervisor_tree(?MODULE, ChildSpecs).
+    jamq_chanserv_sup:reconfigure(),
+    restart_subscribers(),
+    jamq_publisher_sup:reconfigure().
 
 get_brokers(Role) ->
     {ok, Config} = application:get_env(stream_server, amq_servers),
@@ -60,8 +60,8 @@ get_brokers(Role) ->
 
 restart_subscribers() ->
     L = supervisor:which_children(jamq_subscriber_top_sup),
-
-    lists:foldl(
+    io:format("* Restarting subscribers... "),
+    K = lists:foldl(
         fun
             ({_, undefined, _, _}, N) -> N;
             ({Ref, _, _, _}, N) ->
@@ -74,4 +74,5 @@ restart_subscribers() ->
                         lager:error("Restart subscriber failed: ~p~nReason: ~p~nStacktrace: ~p", [Ref, E, erlang:get_stacktrace()]),
                         N
                 end
-        end, 0, L).
+        end, 0, L),
+    io:format("~p/~p~n", [K, erlang:length(L)]).
