@@ -33,7 +33,7 @@ start_link(Options) ->
     end.
 
 stop(Ref) ->
-    gen_server:call(Ref, stop).
+    gen_server:call(Ref, stop, infinity).
 
 init([Options]) ->
     try
