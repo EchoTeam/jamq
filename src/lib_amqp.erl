@@ -195,7 +195,14 @@ set_prefetch_count(Channel, Prefetch) ->
 %%---------------------------------------------------------------------------
 
 delete_queue(Channel, Q) ->
-    QueueDelete = #'queue.delete'{queue = Q},
+    delete_queue(Channel, Q).
+
+delete_queue(Channel, Q, Options) when is_list(Options) ->
+    QueueDelete =
+        lists:foldl(
+            fun ({if_unused, Val}, D) -> D#'queue.delete'{if_unused = Val};
+                ({if_empty, Val}, D) -> D#'queue.delete'{if_empty = Val}
+            end, #'queue.delete'{queue = Q}, Options),
     #'queue.delete_ok'{} = amqp_channel:call(Channel, QueueDelete).
 
 bind_queue(Channel, X, Q, Binding) ->

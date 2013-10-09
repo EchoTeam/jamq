@@ -10,8 +10,11 @@
 -include_lib("amqp_client/include/amqp_client.hrl").
 
 -export([
-    create_queue/1,             % Create a queue
-    delete_queue/1,             % Delete a queue
+    create_queue/1,             % BC, use create_queue/2
+    create_queue/2,             % Create a queue
+    delete_queue/1,             % BC, use delete_queue/2,3
+    delete_queue/2,             % Delete a queue
+    delete_queue/3,             % Delete a queue
     publish/2,                  % Publish something to an AMQ server.
     publish/3,                  % Publish something to an AMQ server, with a timeout.
     publish_by_key/3,           % Publish something to an AMQ server by key.
@@ -56,7 +59,11 @@ start_subscriber(Options) ->
 stop_subscriber(Ref) ->
     jamq_subscriber_top_sup:stop_subscriber(Ref).
 
-create_queue({BrokerRole, QueueName}) when is_atom(BrokerRole), is_list(QueueName) ->
+% Use create_queue/2 instead
+create_queue({BrokerRole, QueueName}) ->
+    create_queue(BrokerRole, QueueName).
+
+create_queue(BrokerRole, QueueName) when is_atom(BrokerRole), is_list(QueueName) ->
     jsk_async:complete(
         fun() ->
             Brokers = jamq_api:get_brokers(BrokerRole),
@@ -71,7 +78,14 @@ create_queue({BrokerRole, QueueName}) when is_atom(BrokerRole), is_list(QueueNam
             ok
         end).
 
-delete_queue({BrokerRole, Q}) when is_atom(BrokerRole), is_list(Q) ->
+%% Use delete_queue/2 instead
+delete_queue({BrokerRole, Q}) ->
+    delete_queue(BrokerRole, Q).
+
+delete_queue(BrokerRole, Q) ->
+    delete_queue(BrokerRole, Q, []).
+
+delete_queue(BrokerRole, Q, Options) when is_atom(BrokerRole), is_list(Q), is_list(Options) ->
     jsk_async:complete(
         fun () ->
             Brokers = jamq_api:get_brokers(BrokerRole),
@@ -79,7 +93,7 @@ delete_queue({BrokerRole, Q}) when is_atom(BrokerRole), is_list(Q) ->
                 fun (B) ->
                     Channel = jamq_channel:channel(jamq_channel:name(BrokerRole, B)),
                     try
-                        #'queue.delete_ok'{} = jamq_api:delete_queue(Channel, Q)
+                        #'queue.delete_ok'{} = jamq_api:delete_queue(Channel, Q, Options)
                     catch
                         exit:{{shutdown, {server_initiated_close,404, _}}, _} -> ok
                     end

@@ -53,6 +53,9 @@ declare_queue(Channel, Q, Durable, Exclusive, AutoDelete, Args) ->
 delete_queue(Channel, Q) ->
         lib_amqp:delete_queue(Channel, type_utils:to_binary(Q)).
 
+delete_queue(Channel, Q, Options) ->
+        lib_amqp:delete_queue(Channel, type_utils:to_binary(Q), Options).
+
 publish(Channel, Message) ->
     lib_amqp:publish(Channel, <<"jskit-bus">>,
         <<"update">>,
