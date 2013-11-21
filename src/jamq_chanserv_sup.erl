@@ -32,12 +32,12 @@ children_specs({_, start_link, [BrokerSpecs]}) ->
     Specs.
 
 reconfigure() ->
-    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
+    {ok, BrokerSpecs} = application:get_env(jamq, amq_servers),
     {ok, { _, ChildSpecs }} = init(BrokerSpecs),
     code_update_mod:reconfigure_supervisor(?MODULE, ChildSpecs).
 
 start_new_channels() ->
-    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
+    {ok, BrokerSpecs} = application:get_env(jamq, amq_servers),
 
     NewSpecs =
         [spec(BrokerGroup, BrokerHostName) || {BrokerGroup, BrokerHosts} <-  BrokerSpecs, BrokerHostName <- BrokerHosts],

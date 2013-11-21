@@ -19,7 +19,7 @@
 ]).
 
 start_link() ->
-    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
+    {ok, BrokerSpecs} = application:get_env(jamq, amq_servers),
     start_link(BrokerSpecs).
 
 start_link(BrokerSpecs) ->
@@ -37,7 +37,7 @@ init(BrokerSpecs) ->
     {ok, {{one_for_all, 3, 10}, [ChanservSup, PublishersSup, SubscribersSup]}}.
 
 children_specs({_, start_link, []}) ->
-    {ok, BrokerSpecs} = application:get_env(stream_server, amq_servers),
+    {ok, BrokerSpecs} = application:get_env(jamq, amq_servers),
     {ok, {_, Specs}} = init(BrokerSpecs),
     Specs;
 children_specs({_, start_link, [BrokerSpecs]}) ->
@@ -50,7 +50,7 @@ reconfigure() ->
     jamq_publisher_sup:reconfigure().
 
 get_brokers(Role) ->
-    {ok, Config} = application:get_env(stream_server, amq_servers),
+    {ok, Config} = application:get_env(jamq, amq_servers),
     case proplists:get_value(Role, Config, undefined) of
         Brokers when is_list(Brokers) -> Brokers;
         undefined ->
