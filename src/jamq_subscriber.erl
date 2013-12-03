@@ -47,7 +47,7 @@ start_link(Properties) ->
     qexclusive = true, % queue.declare exclusive (queue will be deleted after client disconnection)
     exclusive = false, % basic.consume exclusive
     qauto_delete = true,
-    qbind_tag = <<$#>>,
+    qbind_keys = [<<$#>>],
     topic = <<$#>>,
     broker = undefined,
     channel_properties = [],
@@ -74,7 +74,7 @@ init(Properties) ->
 
     erlang:process_flag(trap_exit, true),
 
-    [Dur, Exc, SubExc, AutoD, T, Q, QBT, Br, Ex, F, AutoAck, QArgs, StatusCallback, SupressError, ConnectDelay, RedeliveryInd]
+    [Dur, Exc, SubExc, AutoD, T, Q, QBT, QBKeys, Br, Ex, F, AutoAck, QArgs, StatusCallback, SupressError, ConnectDelay, RedeliveryInd]
         = [proplists:get_value(K, Properties, D) || {K, D} <- [
             {durable, undefined},
             {exclusive, undefined},
@@ -82,7 +82,8 @@ init(Properties) ->
             {auto_delete, undefined},
             {topic, <<$#>>},
             {queue, transient},
-            {queue_bind_tag, undefined},
+            {queue_bind_tag, undefined}, % deprecated, use queue_bind_keys
+            {queue_bind_keys, []},
             {broker, undefined},
             {exchange, ?DEFAULT_EXCHANGE},
             {function,
@@ -103,8 +104,7 @@ init(Properties) ->
         P /= undefined],
 
     Topic = iolist_to_binary(T),
-    {{Durable, Exclusive, AutoDelete},
-            QName, QBindTag} = if
+    {{Durable, Exclusive, AutoDelete}, QName, QBindTag} = if
         Q == transient ->
             TmpQBindTag = case QBT of
               undefined ->
@@ -120,7 +120,7 @@ init(Properties) ->
                 "-", string:tokens(pid_to_list(self()), "<>"),
                 "-", TmpQBindTag]),
             TmpQBindTag};
-        QBT == undefined -> throw({missing, queue_bind_tag});
+        QBT == undefined andalso QBKeys == []  -> throw({missing, queue_bind_keys});
         Br == undefined -> throw({missing, broker});
         is_atom(Q) -> {{true, false, false}, atom_to_list(Q), QBT};
         true -> {{true, false, false}, iolist_to_binary(Q), QBT}
@@ -140,7 +140,7 @@ init(Properties) ->
                     qexclusive = FinalExclusiveQ,
                     exclusive = SubExc,
                     qauto_delete = FinalAutoDeleteQ,
-                    qbind_tag = iolist_to_binary(QBindTag),
+                    qbind_keys = [iolist_to_binary(K) || K <- [QBindTag] ++ QBKeys, K /= undefined],
                     topic = Topic,
                     broker = Br,
                     channel_properties = ChannelProps,
@@ -273,13 +273,13 @@ format_status(_Opt, [_Dict, State]) ->
 
 unsubscribe_and_close(_Reason, #state{channel = undefined} = State) -> State;
 unsubscribe_and_close(_Reason, #state{channel = Channel} = State) ->
-    QBTag = (State#state.subscription)#subscription.qbind_tag,
+    QBKeys = (State#state.subscription)#subscription.qbind_keys,
     Topic = (State#state.subscription)#subscription.topic,
     StatusCallback = (State#state.subscription)#subscription.status_callback,
     A = lib_amqp:unsubscribe(Channel, Topic),
     B = lib_amqp:close_channel(Channel),
     lager:info("Unsubscribed from ~p ~p: {~p, ~p} because of exit ~p",
-        [QBTag, Topic, A, B, _Reason]),
+        [QBKeys, Topic, A, B, _Reason]),
     (StatusCallback =/= undefined) andalso StatusCallback(down),
     State#state{channel = undefined}.
 
@@ -289,12 +289,12 @@ setup_queue(Channel, #state{ subscription = #subscription{
                                                 qdurable = Dur,
                                                 qexclusive = Exc,
                                                 qauto_delete = AutoD,
-                                                qbind_tag = QBindTag,
+                                                qbind_keys = QBindKeys,
                                                 channel_properties = ChannelProps,
                                                 queue_args = Args}}) ->
     jamq_api:declare_queue(Channel, QueueName, Dur, Exc, AutoD, Args),
 
-    {'queue.bind_ok'} = lib_amqp:bind_queue(Channel, ExName, QueueName, QBindTag),
+    [{'queue.bind_ok'} = lib_amqp:bind_queue(Channel, ExName, QueueName, K) || K <- QBindKeys],
 
     case proplists:get_value(prefetch_count, ChannelProps) of
         undefined -> lib_amqp:set_prefetch_count(Channel, 1000);
@@ -351,7 +351,7 @@ status_of_state(State) ->
     [
         {queue_length, queue:len(State#state.messages)},
         {qname, (State#state.subscription)#subscription.qname},
-        {bindtag, (State#state.subscription)#subscription.qbind_tag},
+        {bindkeys, (State#state.subscription)#subscription.qbind_keys},
         {topic, (State#state.subscription)#subscription.topic},
         {broker, (State#state.subscription)#subscription.broker},
         {proc, State#state.message_processor},

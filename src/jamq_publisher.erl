@@ -89,7 +89,7 @@ publish(Topic, Msg) -> publish(Topic, Msg, 30000).
 publish({Role, Topic}, Msg, Timeout) -> publish_ll({Role, Topic}, Msg, Timeout, undefined);
 publish(Topic, Msg, Timeout) -> publish_ll({undefined, Topic}, Msg, Timeout, undefined).
 
-% NOTE: Use jamq:publish_by_ket/3,4 instead!
+% NOTE: Use jamq:publish_by_key/3,4 instead!
 publish_by_key(Topic, Msg, Key) -> publish_by_key(Topic, Msg, Key, 30000).
 publish_by_key({Role, Topic}, Msg, Key, Timeout) -> publish_ll({Role, Topic}, Msg, Timeout, Key);
 publish_by_key(Topic, Msg, Key, Timeout) -> publish_ll({undefined, Topic}, Msg, Timeout, Key).
