@@ -33,6 +33,29 @@
 
 -define(DEFAULT_SYNC_REQUEST_TIMEOUT, 10000).
 
+-type server_name() :: {local, atom()} | {global, term()} | {via, atom(), term()}.
+-type topic() :: iolist() | binary().
+-type subscriber_opt() :: {server_name, server_name()}
+                        | {durable, boolean()}
+                        | {exclusive, boolean()}
+                        | {subscribe_exclusive, boolean()}
+                        | {auto_delete, boolean()}
+                        | {topic, topic()}
+                        | {queue, transient | atom() | topic()}
+                        | {queue_bind_tag, topic()} % XXX: deprecated, use queue_bind_keys
+                        | {queue_bind_keys, list(topic())}
+                        | {broker, atom()}
+                        | {exchange, binary()}
+                        | {function, fun()}
+                        | {auto_ack, boolean()}
+                        | {queue_args, list()}
+                        | {status_callback, undefined | fun()}
+                        | {supress_error, boolean()}
+                        | {connect_delay, integer()}
+                        | {redelivery_ind, boolean()}.
+-type subscriber_opts() :: [subscriber_opt()].
+-type subscribe_ret() :: {ok, pid()} | ignore | {error, {already_started, pid()} | term()}.
+
 
 publish(Topic, Msg) -> jamq_publisher:publish(Topic, Msg).
 publish(Topic, Msg, Timeout) -> jamq_publisher:publish(Topic, Msg, Timeout).
@@ -42,9 +65,12 @@ publish_by_key(Topic, Msg, Key, Timeout) -> jamq_publisher:publish_by_key(Topic,
 async_publish(Topic, Msg) -> jamq_publisher:async_publish(Topic, Msg).
 async_publish_by_key(Topic, Msg, Key) -> jamq_publisher:async_publish_by_key(Topic, Msg, Key).
 
-
+%% @see subscribe/1
+-spec subscribe(topic(), fun()) -> subscribe_ret().
 subscribe(Topic, Fun) ->
     subscribe([{topic, Topic},{function, Fun}]).
+
+-spec subscribe(topic() | subscriber_opts()) -> subscribe_ret().
 subscribe([Option|_] = Options) when is_tuple(Option) ->
     jamq_client_mon:start_link(Options);
 subscribe(Topic) when is_list(Topic); is_binary(Topic) ->

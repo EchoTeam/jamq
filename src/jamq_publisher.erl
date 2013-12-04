@@ -144,7 +144,7 @@ handle_call({publish, _Key, _Topic, _Binary} = PubMsg, From, State = #state{}) -
 handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, false} = PubMsg, From, State = #state{}) ->
     {noreply, drain_queue(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])})};
 
-handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, true} = PubMsg, From, State = #state{}) ->
+handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, true} = PubMsg, _From, State = #state{}) ->
     {reply, ok, drain_queue(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])})};
 
 handle_call({status}, _From, #state{queue = Q} = State) ->
@@ -345,11 +345,11 @@ reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
 
 drain_queue(#state{queue = Q, brokers = Brokers} = State) when Q == [] orelse Brokers == [] ->
     State;
-drain_queue(#state{channels = Channels, queue = Q, brokers = Brokers} = State) ->
+drain_queue(#state{channels = Channels, brokers = Brokers} = State) ->
     {AvailableBrokers, DownBrokers} = get_brokers(Channels, Brokers),
     drain_queue_ll(AvailableBrokers, DownBrokers, [], State#state{brokers = rotate_brokers(Brokers)}).
 
-drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = Q} = State) when AvailableBrokers == [] orelse Q == [] ->
+drain_queue_ll(AvailableBrokers, _DownBrokers, PassedMsgs, #state{queue = Q} = State) when AvailableBrokers == [] orelse Q == [] ->
     State#state{queue = PassedMsgs ++ Q};
 drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = [Msg | Q], channels = Channels} = State) ->
     Broker = get_broker_candidate(AvailableBrokers, DownBrokers, State),
@@ -420,7 +420,7 @@ get_broker_candidate(AvailableBrokers, DownBrokers, #state{queue = [{_, Msg} | _
                      get_broker(Brokers, AvailableBrokers, DownBrokers)
     end.
 
-get_broker([], AvailableBrokers, DownBrokers) -> [];
+get_broker([], _AvailableBrokers, _DownBrokers) -> [];
 get_broker([Broker | Brokers], AvailableBrokers, DownBrokers) ->
     case {lists:member(Broker, AvailableBrokers), lists:member(Broker, DownBrokers)} of
         {true,  false} -> Broker;
