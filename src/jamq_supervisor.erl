@@ -66,8 +66,7 @@ restart_subscribers() ->
             ({_, undefined, _, _}, N) -> N;
             ({Ref, _, _, _}, N) ->
                 try
-                    ok = supervisor:terminate_child(jamq_subscriber_top_sup, Ref),
-                    {ok, _} = supervisor:restart_child(jamq_subscriber_top_sup, Ref),
+                    ok = jamq_subscriber_top:reconfigure(Ref),
                     N + 1
                 catch
                     _:E ->

@@ -9,7 +9,8 @@
 -export([
     start_link/1,
     init/1,
-    stop/1
+    stop/1,
+    reconfigure/1
 ]).
 
 start_link(Properties) ->
@@ -42,7 +43,7 @@ stop(SupRef) ->
 
 init({top, Owner, Properties}) ->
     {ok, {{one_for_one, 10, 10}, [
-        {monitor,  {jamq_subscriber_mon, start_link, [Owner, self()]}, permanent, 10000, worker, [jamq_subscriber_mon]},
+        {monitor,  {jamq_subscriber_mon, start_link, [Owner, self(), Properties]}, permanent, 10000, worker, [jamq_subscriber_mon]},
         {children, {supervisor, start_link, [?MODULE, {children, Properties}]}, permanent, infinity, supervisor, [?MODULE]}
     ]}};
 
@@ -70,4 +71,11 @@ init({children, Properties}) ->
 
     {ok, {{one_for_one, 10, 10}, Specs}}.
 
-
+reconfigure(SupRef) ->
+    C = supervisor:which_children(SupRef),
+    {_, ChSup, _, _} = lists:keyfind(children, 1, C),
+    {_, Monitor, _, _} = lists:keyfind(monitor, 1, C),
+    Properties = gen_server:call(Monitor, get_properties),
+    {_, {_, Specs}} = init({children, Properties}),
+    code_update_mod:reconfigure_supervisor(ChSup, Specs),
+    ok.

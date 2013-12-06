@@ -20,16 +20,19 @@
 
 -record(state, {
     owner_mon = undefined,
-    sup_pid   = undefined
+    sup_pid   = undefined,
+    properties = undefined,
     }).
 
-start_link(Owner, SupPid) ->
+start_link(Owner, SupPid, Properties) ->
     gen_server:start_link(?MODULE, [Owner, SupPid], []).
 
-init([Owner, SupPid]) ->
+init([Owner, SupPid, Properties]) ->
     Mon = erlang:monitor(process, Owner),
-    {ok, #state{owner_mon = Mon, sup_pid = SupPid}}.
+    {ok, #state{owner_mon = Mon, sup_pid = SupPid, properties = Properties}}.
 
+handle_call(get_properties, _From, State = #state{}) ->
+    State#state.properties;
 handle_call(Req, _From, State) ->
     lager:error("Unhandled call ~p", [Req]),
     {noreply, State}.
