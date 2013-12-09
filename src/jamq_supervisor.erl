@@ -16,7 +16,7 @@
     get_brokers/1, % temporarily function
     children_specs/1,
     restart_subscribers/0,
-    force_restart_subscribers/0,
+    force_restart_subscribers/0
 ]).
 
 start_link() ->
