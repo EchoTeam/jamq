@@ -64,9 +64,9 @@ restart_subscribers() ->
     K = lists:foldl(
         fun
             ({_, undefined, _, _}, N) -> N;
-            ({Ref, _, _, _}, N) ->
+            ({_, Ref, _, _}, N) ->
                 try
-                    ok = jamq_subscriber_top:reconfigure(Ref),
+                    ok = jamq_subscriber_sup:reconfigure(Ref),
                     N + 1
                 catch
                     _:E ->

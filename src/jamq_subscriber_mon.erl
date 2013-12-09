@@ -32,7 +32,7 @@ init([Owner, SupPid, Properties]) ->
     {ok, #state{owner_mon = Mon, sup_pid = SupPid, properties = Properties}}.
 
 handle_call(get_properties, _From, State = #state{}) ->
-    State#state.properties;
+    {reply, State#state.properties, State};
 handle_call(Req, _From, State) ->
     lager:error("Unhandled call ~p", [Req]),
     {noreply, State}.
