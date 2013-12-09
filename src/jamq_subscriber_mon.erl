@@ -25,6 +25,9 @@
     properties = undefined
     }).
 
+% first start_link function is BC code
+start_link(Owner, SupPid) ->
+    gen_server:start_link(?MODULE, [Owner, SupPid], []).
 start_link(Owner, SupPid, Properties) ->
     gen_server:start_link(?MODULE, [Owner, SupPid, Properties], []).
 
