@@ -6,7 +6,8 @@
 -behavior(gen_server).
 
 -export([
-    start_link/3
+    start_link/3,
+    start_link/2
 ]).
 
 -export([

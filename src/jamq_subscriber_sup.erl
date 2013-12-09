@@ -43,7 +43,7 @@ stop(SupRef) ->
 
 init({top, Owner, Properties}) ->
     {ok, {{one_for_one, 10, 10}, [
-        {monitor,  {jamq_subscriber_mon, start_link, [Owner, self()]}, permanent, 10000, worker, [jamq_subscriber_mon]},
+        {monitor,  {jamq_subscriber_mon, start_link, [Owner, self(), Properties]}, permanent, 10000, worker, [jamq_subscriber_mon]},
         {children, {supervisor, start_link, [?MODULE, {children, Properties}]}, permanent, infinity, supervisor, [?MODULE]}
     ]}};
 
