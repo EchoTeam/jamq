@@ -6,7 +6,7 @@
 -behavior(gen_server).
 
 -export([
-    start_link/2
+    start_link/3
 ]).
 
 -export([
@@ -21,11 +21,11 @@
 -record(state, {
     owner_mon = undefined,
     sup_pid   = undefined,
-    properties = undefined,
+    properties = undefined
     }).
 
 start_link(Owner, SupPid, Properties) ->
-    gen_server:start_link(?MODULE, [Owner, SupPid], []).
+    gen_server:start_link(?MODULE, [Owner, SupPid, Properties], []).
 
 init([Owner, SupPid, Properties]) ->
     Mon = erlang:monitor(process, Owner),
