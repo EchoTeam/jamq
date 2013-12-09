@@ -15,7 +15,8 @@
     reconfigure/0,
     get_brokers/1, % temporarily function
     children_specs/1,
-    restart_subscribers/0
+    restart_subscribers/0,
+    force_restart_subscribers/0,
 ]).
 
 start_link() ->
@@ -67,6 +68,25 @@ restart_subscribers() ->
             ({_, Ref, _, _}, N) ->
                 try
                     ok = jamq_subscriber_sup:reconfigure(Ref),
+                    N + 1
+                catch
+                    _:E ->
+                        lager:error("Restart subscriber failed: ~p~nReason: ~p~nStacktrace: ~p", [Ref, E, erlang:get_stacktrace()]),
+                        N
+                end
+        end, 0, L),
+    io:format("~p/~p~n", [K, erlang:length(L)]).
+
+force_restart_subscribers() ->
+    L = supervisor:which_children(jamq_subscriber_top_sup),
+    io:format("* Restarting subscribers... "),
+    K = lists:foldl(
+        fun
+            ({_, undefined, _, _}, N) -> N;
+            ({Ref, _, _, _}, N) ->
+                try
+                    ok = supervisor:terminate_child(jamq_subscriber_top_sup, Ref),
+                    {ok, _} = supervisor:restart_child(jamq_subscriber_top_sup, Ref),
                     N + 1
                 catch
                     _:E ->
