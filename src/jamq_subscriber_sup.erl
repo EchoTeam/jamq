@@ -75,7 +75,7 @@ reconfigure(SupRef) ->
     C = supervisor:which_children(SupRef),
     {_, ChSup, _, _} = lists:keyfind(children, 1, C),
     {_, Monitor, _, _} = lists:keyfind(monitor, 1, C),
-    Properties = gen_server:call(Monitor, get_properties),
+    Properties = jamq_subscriber_mon:get_properties(Monitor),
     {_, {_, Specs}} = init({children, Properties}),
     code_update_mod:reconfigure_supervisor(ChSup, Specs),
     ok.

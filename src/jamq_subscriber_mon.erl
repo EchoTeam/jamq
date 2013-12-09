@@ -15,6 +15,7 @@
     handle_cast/2,
     handle_info/2,
     terminate/2,
+    get_properties/1,
     code_change/3
 ]).
 
@@ -30,6 +31,9 @@ start_link(Owner, SupPid, Properties) ->
 init([Owner, SupPid, Properties]) ->
     Mon = erlang:monitor(process, Owner),
     {ok, #state{owner_mon = Mon, sup_pid = SupPid, properties = Properties}}.
+
+get_properties(Ref) ->
+    gen_server:call(Ref, get_properties).
 
 handle_call(get_properties, _From, State = #state{}) ->
     {reply, State#state.properties, State};
