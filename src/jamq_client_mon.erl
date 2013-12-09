@@ -37,7 +37,7 @@ stop(Ref) ->
 
 init([Options]) ->
     try
-        {ok, Ref} = jamq:start_subscriber([{owner, self(), Options}|Options]),
+        {ok, Ref} = jamq:start_subscriber([{owner, self()}|Options]),
         Mon = erlang:monitor(process, jamq_subscriber_top_sup),
         {ok, #state{sub_ref = Ref, mon = Mon}}
     catch
