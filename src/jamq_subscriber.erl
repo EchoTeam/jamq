@@ -31,6 +31,7 @@
 
 -define(DEFAULT_EXCHANGE, <<"jskit-bus">>).
 -define(RETRY_TIMEOUT, 5000).
+-define(GRACEFUL_SHUTDOWN_TIMEOUT, 4500).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 
@@ -62,12 +63,15 @@ start_link(Properties) ->
     function,
     messages = queue:new(),
     messages_retry_timer,
-    message_processor,    % Process which hangles messages.
+    message_processor,    % Process which handles messages.
     ch_monref,
     ch_timer,
     subscription = #subscription{},
     recv_msg_count = 0,
-    supress_error = false
+    supress_error = false,
+    processes_waiting_for_unsubscribe = [] % when this list is non-empty
+                                           % we wait for message_processor to finish
+                                           % and don't launch new ones
     }).
 
 init(Properties) ->
@@ -159,12 +163,27 @@ init(Properties) ->
         supress_error = SupressError
     } }.
 
-handle_call({unsubscribe}, _From, OldState) ->
-    State = unsubscribe_and_close(unsubscribe, OldState),
-    {stop, normal,
-        {ok, {unsubscribed,
-            (State#state.subscription)#subscription.topic}},
-    State}.
+handle_call({unsubscribe}, From,
+            #state{message_processor = MessageProcessor,
+                   processes_waiting_for_unsubscribe = Unsubscribers} = OldState) ->
+    case MessageProcessor of
+        undefined ->
+            % There is no worker process, we can shut down right now.
+            State = unsubscribe_and_close(unsubscribe, OldState),
+            {stop,
+             normal,
+             {ok, {unsubscribed,
+                 (State#state.subscription)#subscription.topic}},
+             State};
+        _ ->
+            % Let's wait for worker process to finish
+            case Unsubscribers of
+                [] -> {ok, _TimerRef} = timer:send_after(?GRACEFUL_SHUTDOWN_TIMEOUT, force_shutdown);
+                _ -> ok % Shutdown timer has already been created when we got the first 'unsubscribe' call
+            end,
+            % We will reply either after message_processor finishes or after timeout.
+            {noreply, OldState#state{processes_waiting_for_unsubscribe = [From | Unsubscribers]}}
+    end.
 
 handle_cast(_Msg, State) -> {noreply, State}.
 
@@ -221,8 +240,17 @@ handle_info({'DOWN', ERef, process, EPid, normal},
         true -> lib_amqp:ack(Channel, DeliveryTag);
         false -> ok
     end,
-    {noreply, dispatch(on_msg_received(State#state{messages = NewMsgsQ,
-        message_processor = undefined}))};
+    case State#state.processes_waiting_for_unsubscribe of
+        [] -> {noreply, dispatch(on_msg_received(State#state{messages = NewMsgsQ,
+                                                             message_processor = undefined}))};
+        Clients ->
+            NextState = unsubscribe_and_close(unsubscribe, State),
+            lists:map(fun(From) ->
+                            gen_server:reply(From,
+                                            {ok, {unsubscribed, (State#state.subscription)#subscription.topic}})
+                         end, Clients),
+            {stop, NextState#state{processes_waiting_for_unsubscribe = []}}
+    end;
 %% Message was handled improperly, start the retry timer and notify the user.
 handle_info({'DOWN', ERef, process, EPid, Info},
         #state{message_processor = {EPid,ERef}} = State) ->
@@ -256,6 +284,15 @@ handle_info({'EXIT', _From, normal}, State) ->
 
 handle_info({'EXIT', _From, Reason}, State) ->
     {stop, Reason, unsubscribe_and_close(unexpected_exit, State)};
+
+handle_info(force_shutdown,
+            #state{processes_waiting_for_unsubscribe = Clients,
+                   subscription = #subscription{topic = Topic}} = State) ->
+    NextState = unsubscribe_and_close(unsubscribe, State),
+    lists:map(fun(From) ->
+                  gen_server:reply(From, {ok, {unsubscribed, Topic}})
+              end, Clients),
+    {stop, NextState#state{processes_waiting_for_unsubscribe = []}};
 
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
