@@ -234,7 +234,8 @@ handle_info(acquire_channel, #state{channel = undefined,
 handle_info({'DOWN', ERef, process, EPid, normal},
         #state{channel = Channel, messages = MsgsQ,
         message_processor = {EPid,ERef},
-        subscription = #subscription{ auto_ack = AutoAck }} = State) ->
+        subscription = #subscription{auto_ack = AutoAck,
+                                     topic = Topic}} = State) ->
     {{value, {DeliveryTag, _, _Payload}}, NewMsgsQ} = queue:out(MsgsQ),
     case AutoAck of
         true -> lib_amqp:ack(Channel, DeliveryTag);
@@ -245,11 +246,9 @@ handle_info({'DOWN', ERef, process, EPid, normal},
                                                              message_processor = undefined}))};
         Clients ->
             NextState = unsubscribe_and_close(unsubscribe, State),
-            lists:map(fun(From) ->
-                            gen_server:reply(From,
-                                            {ok, {unsubscribed, (State#state.subscription)#subscription.topic}})
-                         end, Clients),
-            {stop, NextState#state{processes_waiting_for_unsubscribe = []}}
+            [finish_unsubscribe(From, Topic) || From <- Clients],
+            {stop, normal, NextState#state{message_processor = undefined,
+                                           processes_waiting_for_unsubscribe = []}}
     end;
 %% Message was handled improperly, start the retry timer and notify the user.
 handle_info({'DOWN', ERef, process, EPid, Info},
@@ -289,13 +288,20 @@ handle_info(force_shutdown,
             #state{processes_waiting_for_unsubscribe = Clients,
                    subscription = #subscription{topic = Topic}} = State) ->
     NextState = unsubscribe_and_close(unsubscribe, State),
-    lists:map(fun(From) ->
-                  gen_server:reply(From, {ok, {unsubscribed, Topic}})
-              end, Clients),
-    {stop, NextState#state{processes_waiting_for_unsubscribe = []}};
+    [finish_unsubscribe(From, Topic) || From <- Clients],
+    {stop,
+     normal,
+     NextState#state{
+            message_processor = undefined,
+            processes_waiting_for_unsubscribe = []
+            }};
 
 handle_info(_Info, State = #state{}) ->
     {noreply, State}.
+
+finish_unsubscribe(From, Topic) ->
+    gen_server:reply(From, {ok, {unsubscribed, Topic}}),
+    ok.
 
 terminate(Reason, State) -> unsubscribe_and_close(Reason, State).
 
