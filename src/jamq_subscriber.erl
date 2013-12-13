@@ -31,7 +31,7 @@
 
 -define(DEFAULT_EXCHANGE, <<"jskit-bus">>).
 -define(RETRY_TIMEOUT, 5000).
--define(GRACEFUL_SHUTDOWN_TIMEOUT, 4500).
+-define(GRACEFUL_SHUTDOWN_TIMEOUT, 4000).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
 
@@ -252,8 +252,16 @@ handle_info({'DOWN', ERef, process, EPid, normal},
     end;
 %% Message was handled improperly, start the retry timer and notify the user.
 handle_info({'DOWN', ERef, process, EPid, Info},
-        #state{message_processor = {EPid,ERef}} = State) ->
-    {noreply, retry_handler(Info, State)};
+        #state{message_processor = {EPid,ERef},
+               subscription = #subscription{topic = Topic}} = State) ->
+    case State#state.processes_waiting_for_unsubscribe of
+        [] -> {noreply, retry_handler(Info, State)};
+        Clients ->
+            NextState = unsubscribe_and_close(unsubscribe, State),
+            [finish_unsubscribe(From, Topic) || From <- Clients],
+            {stop, normal, NextState#state{message_processor = undefined,
+                                           processes_waiting_for_unsubscribe = []}}
+    end;
 handle_info(retry_dispatch, #state{messages_retry_timer = T} = State) when T /= undefined ->
     {noreply, dispatch(State#state{messages_retry_timer = undefined})};
 handle_info({'DOWN', MRef, process, ChanPid, _Info},
