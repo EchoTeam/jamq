@@ -227,7 +227,7 @@ code_change(_OldVsn, State, _Extra) ->
 publish_ll({Role, Topic}, Msg, Timeout, Key) ->
     case maybe_publish(Msg) of
         true  -> Binary = term_to_binary(wrapped_msg(Msg)),
-                 _Tm = case random:uniform(1000)<10 of
+                 case random:uniform(1000)<10 of
                         true -> stats:notify("jamq.message.distribution", erlang:external_size(Binary),  simple_statistics);
                         _ -> ok
                  end,
