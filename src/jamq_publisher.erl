@@ -228,7 +228,7 @@ publish_ll({Role, Topic}, Msg, Timeout, Key) ->
     case maybe_publish(Msg) of
         true  -> Binary = term_to_binary(wrapped_msg(Msg)),
                  case random:uniform(1000)<10 of
-                        true -> plog:count(e2, "jamq_message_distribution", erlang:external_size(Binary));
+                        true -> plog:count(e2, "jamq_message_distribution", erlang:byte_size(Binary));
                         _ -> ok
                  end,
                  gen_server:call(name(Role), {publish, Key,
