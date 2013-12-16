@@ -34,6 +34,7 @@
 -define(GRACEFUL_SHUTDOWN_TIMEOUT, 4000).
 
 -include_lib("amqp_client/include/amqp_client.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 % NOTE: Use jamq:unsubscribe/1 instead!
 unsubscribe(ServerRef) -> gen_server:call(ServerRef, {unsubscribe}).
@@ -474,3 +475,25 @@ kill_all_subscribers(Reason, Timeout) ->
         timer:sleep(Timeout)
     end||P <- Subs].
 
+% Tests that require knowledge about module internals
+
+unsubscribe_when_idle_test() ->
+    BeforeState = #state{message_processor = undefined,
+                         subscription = #subscription{topic = <<"Test Topic">>}},
+    AfterState = BeforeState,
+    {stop, normal, {ok, {unsubscribed, <<"Test Topic">>}}, AfterState} =
+        jamq_subscriber:handle_call({unsubscribe}, {self(), test}, BeforeState).
+
+unsubscribe_when_working_test() ->
+    BeforeState = #state{message_processor = loop_forever},
+    From = {self(), test},
+    AfterState = BeforeState#state{processes_waiting_for_unsubscribe = [From]},
+    {noreply, AfterState} =
+        jamq_subscriber:handle_call({unsubscribe}, {self(), test}, BeforeState).
+
+multiple_unsubscribers_test() ->
+    BeforeState = #state{message_processor = loop_forever, processes_waiting_for_unsubscribe = [foo, bar, baz]},
+    From = {self(), test},
+    AfterState = BeforeState#state{processes_waiting_for_unsubscribe = [From, foo, bar, baz]},
+    {noreply, AfterState} =
+        jamq_subscriber:handle_call({unsubscribe}, {self(), test}, BeforeState).
