@@ -225,6 +225,10 @@ code_change(_OldVsn, State, _Extra) ->
 %%%===================================================================
 
 publish_ll({Role, Topic}, Msg, Timeout, Key) ->
+    _Tm = case random:uniform(1000) of
+        47 -> stats:notify("jamq.message.distribution", erlang:external_size(Msg), sizes);
+        _ -> ok
+    end,
     case maybe_publish(Msg) of
         true  -> gen_server:call(name(Role), {publish, Key,
                                               iolist_to_binary(Topic),
