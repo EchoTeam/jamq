@@ -107,18 +107,18 @@ send_task(Subscriber, Task) ->
 
 mock_everything() ->
     FakeChannelPid = spawn(fun() -> receive quit -> ok end end),
-    meck:new(jamq_channel, [no_link]),
+    meck:new(jamq_channel),
     meck:expect(jamq_channel, channel, 1, FakeChannelPid),
-    meck:new(jamq_api, [no_link]),
+    meck:new(jamq_api),
     meck:expect(jamq_api, declare_queue, 6, ok),
-    meck:new(lib_amqp, [no_link]),
+    meck:new(lib_amqp),
     meck:expect(lib_amqp, ack, 2, ok),
     meck:expect(lib_amqp, subscribe, 6, ok),
     meck:expect(lib_amqp, unsubscribe, 2, ok),
     meck:expect(lib_amqp, close_channel, 1, ok),
     meck:expect(lib_amqp, bind_queue, 4, {'queue.bind_ok'}),
     meck:expect(lib_amqp, set_prefetch_count, 2, ok),
-    meck:new(amqp_channel, [no_link]),
+    meck:new(amqp_channel),
     meck:expect(amqp_channel, cast, 2, ok),
     FakeChannelPid.
 
