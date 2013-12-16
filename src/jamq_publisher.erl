@@ -226,9 +226,11 @@ code_change(_OldVsn, State, _Extra) ->
 
 publish_ll({Role, Topic}, Msg, Timeout, Key) ->
     case maybe_publish(Msg) of
-        true  -> gen_server:call(name(Role), {publish, Key,
+        true  -> Binary = term_to_binary(wrapped_msg(Msg)),
+                 plog:count(e2, "jamq_message_distribution", erlang:byte_size(Binary) div 65536),
+                 gen_server:call(name(Role), {publish, Key,
                                               iolist_to_binary(Topic),
-                                              term_to_binary(wrapped_msg(Msg))}, Timeout);
+                                              Binary}, Timeout);
         false -> log_message(Topic, Msg)
     end.
 
