@@ -163,27 +163,24 @@ init(Properties) ->
         supress_error = SupressError
     } }.
 
+handle_call({unsubscribe}, _From,
+            #state{message_processor = undefined} = OldState) ->
+    % There is no worker process, we can shut down right now.
+    State = unsubscribe_and_close(unsubscribe, OldState),
+    {stop,
+     normal,
+     {ok, {unsubscribed,
+         (State#state.subscription)#subscription.topic}},
+     State};
 handle_call({unsubscribe}, From,
-            #state{message_processor = MessageProcessor,
-                   processes_waiting_for_unsubscribe = Unsubscribers} = OldState) ->
-    case MessageProcessor of
-        undefined ->
-            % There is no worker process, we can shut down right now.
-            State = unsubscribe_and_close(unsubscribe, OldState),
-            {stop,
-             normal,
-             {ok, {unsubscribed,
-                 (State#state.subscription)#subscription.topic}},
-             State};
-        _ ->
-            % Let's wait for worker process to finish
-            case Unsubscribers of
-                [] -> {ok, _TimerRef} = timer:send_after(?GRACEFUL_SHUTDOWN_TIMEOUT, force_shutdown);
-                _ -> ok % Shutdown timer has already been created when we got the first 'unsubscribe' call
-            end,
-            % We will reply either after message_processor finishes or after timeout.
-            {noreply, OldState#state{processes_waiting_for_unsubscribe = [From | Unsubscribers]}}
-    end.
+            #state{processes_waiting_for_unsubscribe = Unsubscribers} = OldState) ->
+    % Let's wait for worker process to finish
+    case Unsubscribers of
+        [] -> {ok, _TimerRef} = timer:send_after(?GRACEFUL_SHUTDOWN_TIMEOUT, force_shutdown);
+        _ -> ok % Shutdown timer has already been created when we got the first 'unsubscribe' call
+    end,
+    % We will reply either after message_processor finishes or after timeout.
+    {noreply, OldState#state{processes_waiting_for_unsubscribe = [From | Unsubscribers]}}.
 
 handle_cast(_Msg, State) -> {noreply, State}.
 
