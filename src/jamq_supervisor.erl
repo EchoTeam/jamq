@@ -20,7 +20,10 @@
 ]).
 
 start_link() ->
-    {ok, BrokerSpecs} = application:get_env(jamq, amq_servers),
+    BrokerSpecs = case application:get_env(jamq, amq_servers) of
+        {ok, B} -> B;
+        undefined -> []
+    end,
     start_link(BrokerSpecs).
 
 start_link(BrokerSpecs) ->

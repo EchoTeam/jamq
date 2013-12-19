@@ -6,9 +6,8 @@
 % Tests for jamq_subscriber as a whole server
 
 unsubscribe_immediately_test() ->
-    Props = [{topic, <<"Good news, everyone!">>}, {connect_delay, 0}],
     MockStuff = mock_everything(),
-    {ok, S} = jamq_subscriber:start_link(Props),
+    {ok, S} = jamq_subscriber:start_link(example_props()),
     {ok, {unsubscribed, <<"Good news, everyone!">>}} = jamq_subscriber:unsubscribe(S),
     unmock_everything(MockStuff),
     ok.
@@ -46,10 +45,18 @@ unsubscribe_after_worker_hangs_test_() ->
             ok
         end]}.
 
+pass_invalid_functions_test() ->
+    Fun = fun() -> ok end,
+    {stop, {invalid_function, {Fun, _}}} = jamq_subscriber:init([{topic, <<"Good news, everyone!">>}, {function, Fun}]),
+    {stop, {invalid_function, {undefined, _}}} = jamq_subscriber:init([{topic, <<"Good news, everyone!">>}]),
+    ok.
+
+payload(F) -> F().
+
 example_props() ->
     [{topic, <<"Good news, everyone!">>},
      {connect_delay, 0},
-     {function, fun(F) -> F() end}]. % payloads are functions of 0 arguments
+     {function, fun ?MODULE:payload/1}].
 
 send_task(Subscriber, Task) ->
     Subscriber ! {#'basic.deliver'{delivery_tag = delivery_tag, redelivered = redelivered},

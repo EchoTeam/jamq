@@ -79,93 +79,96 @@ start_link(Properties) ->
     }).
 
 init(Properties) ->
+    try
+        erlang:process_flag(trap_exit, true),
 
-    erlang:process_flag(trap_exit, true),
+        [Dur, Exc, SubExc, AutoD, T, Q, QBT, QBKeys, Br, Ex, F, AutoAck, QArgs, StatusCallback, SupressError, ConnectDelay, RedeliveryInd]
+            = [proplists:get_value(K, Properties, D) || {K, D} <- [
+                {durable, undefined},
+                {exclusive, undefined},
+                {subscribe_exclusive, false},
+                {auto_delete, undefined},
+                {topic, <<$#>>},
+                {queue, transient},
+                {queue_bind_tag, undefined}, % deprecated, use queue_bind_keys
+                {queue_bind_keys, []},
+                {broker, undefined},
+                {exchange, ?DEFAULT_EXCHANGE},
+                {function, undefined},
+                {auto_ack, true},
+                {queue_args, []},
+                {status_callback, undefined},
+                {supress_error, false},
+                {connect_delay, undefined},
+                {redelivery_ind, false}
+            ] ],
 
-    [Dur, Exc, SubExc, AutoD, T, Q, QBT, QBKeys, Br, Ex, F, AutoAck, QArgs, StatusCallback, SupressError, ConnectDelay, RedeliveryInd]
-        = [proplists:get_value(K, Properties, D) || {K, D} <- [
-            {durable, undefined},
-            {exclusive, undefined},
-            {subscribe_exclusive, false},
-            {auto_delete, undefined},
-            {topic, <<$#>>},
-            {queue, transient},
-            {queue_bind_tag, undefined}, % deprecated, use queue_bind_keys
-            {queue_bind_keys, []},
-            {broker, undefined},
-            {exchange, ?DEFAULT_EXCHANGE},
-            {function,
-                fun(Msg) ->
-                    lager:error("Unhandled amqp message: ~p", [Msg])
-                end},
-            {auto_ack, true},
-            {queue_args, []},
-            {status_callback, undefined},
-            {supress_error, false},
-            {connect_delay, undefined},
-            {redelivery_ind, false}
-        ] ],
+        ChannelProps = [{K, P} ||
+            K <- [prefetch_count],
+            P <- [proplists:get_value(K, Properties)],
+            P /= undefined],
 
-    ChannelProps = [{K, P} ||
-        K <- [prefetch_count],
-        P <- [proplists:get_value(K, Properties)],
-        P /= undefined],
+        Topic = iolist_to_binary(T),
+        IsLocalFun = is_local_function(F),
+        {{Durable, Exclusive, AutoDelete}, QName, QBindTag} = if
+            F == undefined orelse IsLocalFun -> throw({invalid_function, {F, "Only module or external funs are supported"}});
+            Q == transient ->
+                TmpQBindTag = case QBT of
+                  undefined ->
+                    % Transient queue bind tag is the same as
+                    % subscribe template tag.
+                    Topic;
+                  _ -> QBT
+                end,
+                {{false, true, true},
+                % Transient queues have descriptive names:
+                % <node>-<pid>-<topic>
+                iolist_to_binary([atom_to_list(node()),
+                    "-", string:tokens(pid_to_list(self()), "<>"),
+                    "-", TmpQBindTag]),
+                TmpQBindTag};
+            QBT == undefined andalso QBKeys == []  -> throw({missing, queue_bind_keys});
+            Br == undefined -> throw({missing, broker});
+            is_atom(Q) -> {{true, false, false}, atom_to_list(Q), QBT};
+            true -> {{true, false, false}, iolist_to_binary(Q), QBT}
+        end,
 
-    Topic = iolist_to_binary(T),
-    {{Durable, Exclusive, AutoDelete}, QName, QBindTag} = if
-        Q == transient ->
-            TmpQBindTag = case QBT of
-              undefined ->
-                % Transient queue bind tag is the same as
-                % subscribe template tag.
-                Topic;
-              _ -> QBT
-            end,
-            {{false, true, true},
-            % Transient queues have descriptive names:
-            % <node>-<pid>-<topic>
-            iolist_to_binary([atom_to_list(node()),
-                "-", string:tokens(pid_to_list(self()), "<>"),
-                "-", TmpQBindTag]),
-            TmpQBindTag};
-        QBT == undefined andalso QBKeys == []  -> throw({missing, queue_bind_keys});
-        Br == undefined -> throw({missing, broker});
-        is_atom(Q) -> {{true, false, false}, atom_to_list(Q), QBT};
-        true -> {{true, false, false}, iolist_to_binary(Q), QBT}
-    end,
+        erlang:is_binary(Ex) orelse throw({invalid_exchange, Ex}),
 
-    erlang:is_binary(Ex) orelse throw({invalid_exchange, Ex}),
+        % Final resolution of suggestions
+        FinalDurableQ = if Dur == undefined -> Durable; true -> Dur end,
+        FinalExclusiveQ = if Exc == undefined -> Exclusive; true -> Exc end,
+        FinalAutoDeleteQ = if AutoD == undefined -> AutoDelete; true -> AutoD end,
 
-    % Final resolution of suggestions
-    FinalDurableQ = if Dur == undefined -> Durable; true -> Dur end,
-    FinalExclusiveQ = if Exc == undefined -> Exclusive; true -> Exc end,
-    FinalAutoDeleteQ = if AutoD == undefined -> AutoDelete; true -> AutoD end,
+        SubscrDef = #subscription{
+                        exchange = Ex,
+                        qname = QName,
+                        qdurable = FinalDurableQ,
+                        qexclusive = FinalExclusiveQ,
+                        exclusive = SubExc,
+                        qauto_delete = FinalAutoDeleteQ,
+                        qbind_keys = [iolist_to_binary(K) || K <- [QBindTag] ++ QBKeys, K /= undefined],
+                        topic = Topic,
+                        broker = Br,
+                        channel_properties = ChannelProps,
+                        auto_ack = AutoAck,
+                        queue_args = QArgs,
+                        status_callback = StatusCallback,
+                        redelivery_ind = RedeliveryInd
+                    },
 
-    SubscrDef = #subscription{
-                    exchange = Ex,
-                    qname = QName,
-                    qdurable = FinalDurableQ,
-                    qexclusive = FinalExclusiveQ,
-                    exclusive = SubExc,
-                    qauto_delete = FinalAutoDeleteQ,
-                    qbind_keys = [iolist_to_binary(K) || K <- [QBindTag] ++ QBKeys, K /= undefined],
-                    topic = Topic,
-                    broker = Br,
-                    channel_properties = ChannelProps,
-                    auto_ack = AutoAck,
-                    queue_args = QArgs,
-                    status_callback = StatusCallback,
-                    redelivery_ind = RedeliveryInd
-                },
+        (ConnectDelay < ?RETRY_TIMEOUT) andalso erlang:send_after(ConnectDelay, self(), acquire_channel),
 
-    (ConnectDelay < ?RETRY_TIMEOUT) andalso erlang:send_after(ConnectDelay, self(), acquire_channel),
-
-    {ok, #state{
-        function = F,
-        subscription = SubscrDef,
-        ch_timer = start_acquire_channel_timer(),
-        supress_error = SupressError
-    } }.
+        {ok, #state{
+            function = F,
+            subscription = SubscrDef,
+            ch_timer = start_acquire_channel_timer(),
+            supress_error = SupressError
+        }}
+    catch _:R ->
+        lager:error("Unable to start jamq_subscriber ~p", [R]),
+        {stop, R}
+    end.
 
 handle_call({unsubscribe}, _From,
             #state{message_processor = undefined} = OldState) ->
@@ -477,6 +480,9 @@ kill_all_subscribers(Reason, Timeout) ->
         io:format("."),
         timer:sleep(Timeout)
     end||P <- Subs].
+
+is_local_function(Func) ->
+    is_function(Func) andalso ({type, local} == erlang:fun_info(Func, type)).
 
 -ifdef(TEST).
 % Tests that require knowledge about module internals

@@ -73,6 +73,7 @@ subscribe(Topic, Fun) ->
 -spec subscribe(topic() | subscriber_opts()) -> subscribe_ret().
 subscribe([Option|_] = Options) when is_tuple(Option) ->
     jamq_client_mon:start_link(Options);
+
 subscribe(Topic) when is_list(Topic); is_binary(Topic) ->
     subscribe([{topic, Topic}]).
 
@@ -138,5 +139,3 @@ sync_request(Topic, Msg, Timeout) ->
     after Timeout ->
         {error, timeout}
     end.
-
-
