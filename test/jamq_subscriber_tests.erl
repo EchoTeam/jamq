@@ -33,15 +33,18 @@ unsubscribe_after_worker_crashes_test() ->
     unmock_everything(MockStuff),
     ok.
 
-unsubscribe_after_worker_hangs_test() ->
-    MockStuff = mock_everything(),
-    {ok, S} = jamq_subscriber:start_link(example_props()),
-    send_task(S, fun () ->
-                     receive after 100500 -> ok end
-                 end),
-    {ok, {unsubscribed, <<"Good news, everyone!">>}} = jamq_subscriber:unsubscribe(S),
-    unmock_everything(MockStuff),
-    ok.
+unsubscribe_after_worker_hangs_test_() ->
+    {timeout, 25,
+        [fun() ->
+            MockStuff = mock_everything(),
+            {ok, S} = jamq_subscriber:start_link(example_props()),
+            send_task(S, fun () ->
+                             receive after 100500 -> ok end
+                         end),
+            {ok, {unsubscribed, <<"Good news, everyone!">>}} = jamq_subscriber:unsubscribe(S),
+            unmock_everything(MockStuff),
+            ok
+        end]}.
 
 example_props() ->
     [{topic, <<"Good news, everyone!">>},
