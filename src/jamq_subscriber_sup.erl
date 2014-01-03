@@ -77,5 +77,5 @@ reconfigure(SupRef) ->
     {_, Monitor, _, _} = lists:keyfind(monitor, 1, C),
     Properties = jamq_subscriber_mon:get_properties(Monitor),
     {_, {_, Specs}} = init({children, Properties}),
-    code_update_mod:reconfigure_supervisor(ChSup, Specs),
+    superman:reconfigure_supervisor(ChSup, Specs),
     ok.

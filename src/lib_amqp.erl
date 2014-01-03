@@ -71,7 +71,7 @@ publish(Channel, X, RoutingKey, Payload) ->
 publish(Channel, X, RoutingKey, Payload, Mandatory)
         when is_boolean(Mandatory)->
     publish(Channel, X, RoutingKey, Payload, Mandatory,
-            amqp_util:basic_properties());
+            basic_properties());
 
 publish(Channel, X, RoutingKey, Payload, Properties) ->
     publish(Channel, X, RoutingKey, Payload, false, Properties).
@@ -85,7 +85,7 @@ async_publish(Channel, X, RoutingKey, Payload) ->
 
 async_publish(Channel, X, RoutingKey, Payload, Mandatory) ->
     publish_internal(fun amqp_channel:cast/3, Channel, X, RoutingKey,
-                      Payload, Mandatory, amqp_util:basic_properties()).
+                      Payload, Mandatory, basic_properties()).
 
 publish_internal(Fun, Channel, X, RoutingKey,
                  Payload, Mandatory, Properties) ->
@@ -215,3 +215,8 @@ unbind_queue(Channel, X, Q, Binding) ->
                              routing_key = Binding, arguments = []},
     #'queue.unbind_ok'{} = amqp_channel:call(Channel, Unbind).
 
+%% from amqp_util.erl
+basic_properties() ->
+    #'P_basic'{content_type = <<"application/octet-stream">>,
+               delivery_mode = 1,
+               priority = 0}.
