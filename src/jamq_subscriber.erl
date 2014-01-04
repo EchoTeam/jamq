@@ -167,11 +167,6 @@ init(Properties) ->
         supress_error = SupressError
     } }.
 
-% BC begin
-handle_call(Msg, From, OldStateTuple) when size(OldStateTuple) == 11 ->
-    ?MODULE:handle_call(Msg, From, convert_state(OldStateTuple));
-% BC end
-
 handle_call({unsubscribe}, _From,
             #state{message_processor = undefined} = OldState) ->
     % There is no worker process, we can shut down right now.
@@ -191,18 +186,7 @@ handle_call({unsubscribe}, From,
     % We will reply either after message_processor finishes or after timeout.
     {noreply, OldState#state{processes_waiting_for_unsubscribe = [From | Unsubscribers]}}.
 
-
-% BC begin
-handle_cast(Msg, OldStateTuple) when size(OldStateTuple) == 11 ->
-    ?MODULE:handle_cast(Msg, convert_state(OldStateTuple));
-% BC end
-
 handle_cast(_Msg, State) -> {noreply, State}.
-
-% BC begin
-handle_info(Msg, OldStateTuple) when size(OldStateTuple) == 11 ->
-    ?MODULE:handle_info(Msg, convert_state(OldStateTuple));
-% BC end
 
 handle_info({#'basic.deliver'{delivery_tag = DeliveryTag, redelivered = Redelivered},
         #amqp_msg{payload = Payload}},
@@ -328,44 +312,16 @@ finish_unsubscribe(From, Topic) ->
     gen_server:reply(From, {ok, {unsubscribed, Topic}}),
     ok.
 
-
-% BC begin
-terminate(Reason, OldStateTuple) when size(OldStateTuple) == 11 ->
-    ?MODULE:terminate(Reason, convert_state(OldStateTuple));
-% BC end
-
 terminate(Reason, State) -> unsubscribe_and_close(Reason, State).
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 
-% BC begin
-format_status(Opt, [Dict, OldStateTuple]) when size(OldStateTuple) == 11 ->
-    ?MODULE:format_status(Opt, [Dict, convert_state(OldStateTuple)]);
-% BC end
-
 format_status(_Opt, [_Dict, State]) ->
     [{data,  [{"State",  status_of_state(State)}]}].
 
 %% INTERNAL FUNCTIONS
-
-% BC begin
-convert_state({state, Channel, Function, Messages, Messages_retry_timer,
-               Message_processor, Ch_monref, Ch_timer, Subscription,
-               Recv_msg_count, Supress_error}) ->
-    #state{channel = Channel,
-           function = Function,
-           messages = Messages,
-           messages_retry_timer = Messages_retry_timer,
-           message_processor = Message_processor,
-           ch_monref = Ch_monref,
-           ch_timer = Ch_timer,
-           subscription = Subscription,
-           recv_msg_count = Recv_msg_count,
-           supress_error = Supress_error,
-           processes_waiting_for_unsubscribe = []}.
-% BC end
 
 unsubscribe_and_close(_Reason, #state{channel = undefined} = State) -> State;
 unsubscribe_and_close(_Reason, #state{channel = Channel} = State) ->

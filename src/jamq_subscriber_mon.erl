@@ -6,8 +6,7 @@
 -behavior(gen_server).
 
 -export([
-    start_link/3,
-    start_link/2
+    start_link/3
 ]).
 
 -export([
@@ -26,16 +25,9 @@
     properties = undefined
     }).
 
-% first start_link function is BC code
-start_link(Owner, SupPid) ->
-    gen_server:start_link(?MODULE, [Owner, SupPid], []).
 start_link(Owner, SupPid, Properties) ->
     gen_server:start_link(?MODULE, [Owner, SupPid, Properties], []).
 
-% first init function is BC code
-init([Owner, SupPid]) ->
-    Mon = erlang:monitor(process, Owner),
-    {ok, #state{owner_mon = Mon, sup_pid = SupPid}};
 init([Owner, SupPid, Properties]) ->
     Mon = erlang:monitor(process, Owner),
     {ok, #state{owner_mon = Mon, sup_pid = SupPid, properties = Properties}}.
