@@ -100,7 +100,7 @@ create_queue(BrokerRole, QueueName) when is_atom(BrokerRole), is_list(QueueName)
                     Queue = list_to_binary(QueueName),
                     jamq_api:declare_permanent_queue(Channel, Queue),
                     #'queue.bind_ok'{} =
-                        lib_amqp:bind_queue(Channel, <<"jskit-bus">>, Queue, Queue)
+                        jamq_api:bind_queue(Channel, <<"jskit-bus">>, Queue, Queue)
                 end, Brokers),
             ok
         end).

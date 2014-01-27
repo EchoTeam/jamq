@@ -21,7 +21,14 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
-get_broker_test() ->
+run_test_() ->
+  {setup, fun setup/0, fun cleanup/1,
+     [{"Get broker", fun get_broker_/0},
+	  {"drain_queue_ll round robin", fun drain_queue_ll_round_robin_/0},
+	  {"drain_queue_ll dht ring", fun drain_queue_ll_dht_ring_/0},
+	  {"drain_queue", fun drain_queue_/0}]}.
+
+get_broker_() ->
     ?assertEqual(broker1, jamq_publisher:get_broker([broker1, broker2, broker3], [broker1, broker2, broker3], [])), % broker1 available
     ?assertEqual([], jamq_publisher:get_broker([broker1, broker2, broker3], [broker2, broker3], [])), % broker1 busy
 
@@ -31,7 +38,7 @@ get_broker_test() ->
     ?assertEqual(broker3, jamq_publisher:get_broker([broker1, broker2, broker3], [broker3], [broker1, broker2])), % broker1 down, broker2 down, broker3 available
     ?assertEqual([], jamq_publisher:get_broker([broker1, broker2, broker3], [], [broker1, broker2])). % broker3 busy
 
-drain_queue_ll_round_robin_test() ->
+drain_queue_ll_round_robin_() ->
     Q0 = [{client1, {publish, undefined, undefined, msg1}},
           {client2, {publish, undefined, undefined, msg2}},
           {client2, {publish, undefined, undefined, msg3}},
@@ -65,7 +72,6 @@ drain_queue_ll_round_robin_test() ->
                 #chan{broker = broker2, active = true},
                 #chan{broker = broker3, active = true}],
 
-    setup(),
     % all ok
     ?assertMatch(#state{queue = Q1}, jamq_publisher:drain_queue_ll([broker1, broker2, broker3], [], [], #state{queue = Q0, channels = Channels})),
     ?assertMatch(#state{queue = []}, jamq_publisher:drain_queue_ll([broker1, broker2, broker3], [], [], #state{queue = Q1, channels = Channels})),
@@ -77,10 +83,9 @@ drain_queue_ll_round_robin_test() ->
     % broker3 down, broker2 busy, Q4 messages undelivered
     ?assertMatch(#state{queue = Q5}, jamq_publisher:drain_queue_ll([broker1], [broker3], Q4, #state{queue = Q1, channels = Channels})),
     ?assertMatch(#state{queue = Q6}, jamq_publisher:drain_queue_ll([broker1, broker2], [broker3], [], #state{queue = Q5, channels = Channels})),
-    cleanup(),
     ok.
 
-drain_queue_ll_dht_ring_test() ->
+drain_queue_ll_dht_ring_() ->
     Q0 = [{client1, {publish, keyA, undefined, msg1}},
           {client2, {publish, keyA, undefined, msg2}},
           {client2, {publish, keyB, undefined, msg3}},
@@ -112,7 +117,6 @@ drain_queue_ll_dht_ring_test() ->
                 #chan{broker = broker2, active = true},
                 #chan{broker = broker3, active = true}],
 
-    setup(),
     % all ok
     ?assertMatch(#state{queue = Q1}, jamq_publisher:drain_queue_ll([broker1, broker2, broker3], [], [], #state{queue = Q0, channels = Channels})),
     ?assertMatch(#state{queue = Q2}, jamq_publisher:drain_queue_ll([broker1, broker2, broker3], [], [], #state{queue = Q1, channels = Channels})),
@@ -132,10 +136,9 @@ drain_queue_ll_dht_ring_test() ->
     % broker1 busy, broker2 down
     ?assertMatch(#state{queue = Q3}, jamq_publisher:drain_queue_ll([broker3], [broker2], [], #state{queue = Q3, channels = Channels})),
     ?assertMatch(#state{queue = []}, jamq_publisher:drain_queue_ll([broker1, broker2, broker3], [], [], #state{queue = Q3, channels = Channels})),
-    cleanup(),
     ok.
 
-drain_queue_test() ->
+drain_queue_() ->
     Q0 = [{client1, {publish, undefined, undefined, msg1}},
           {client2, {publish, undefined, undefined, msg2}},
           {client2, {publish, undefined, undefined, msg3}},
@@ -161,7 +164,6 @@ drain_queue_test() ->
                  #chan{channel = list_to_pid("<0.2.0>"), publisher = undefined, broker = broker2, active = true},
                  #chan{channel = list_to_pid("<0.3.0>"), publisher = undefined, broker = broker3, active = true}],
 
-    setup(),
     % all ok
     ?assertMatch(#state{queue = Q1,
                         channels = [#chan{broker = broker1, msg = {client1, {publish, undefined, undefined, msg1}}, active = true},
@@ -186,7 +188,6 @@ drain_queue_test() ->
                         brokers = [broker3, broker1, broker2]},
                  jamq_publisher:drain_queue(#state{queue = Q1, channels = Channels2, brokers = [broker2, broker3, broker1]})),
 
-    cleanup(),
     ok.
 
 setup() ->
@@ -194,10 +195,10 @@ setup() ->
     meck:expect(dht_ring, lookup, fun(_, keyA) -> [{broker1, 25}, {broker2, 25}, {broker3, 25}];
                                      (_, keyB) -> [{broker2, 25}, {broker1, 25}, {broker3, 25}];
                                      (_, _)    -> [{broker3, 25}, {broker2, 25}, {broker1, 25}] end),
-    meck:new(lib_amqp),
-    meck:expect(lib_amqp, publish, fun(_, _, _, _, _) -> ok end),
+    meck:new(jamq_api),
+    meck:expect(jamq_api, publish, fun(_, _, _, _, _) -> ok end),
     ok.
 
-cleanup() ->
+cleanup(_) ->
     meck:unload().
 

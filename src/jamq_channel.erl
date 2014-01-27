@@ -56,7 +56,7 @@ start_chan_serv_mon(Conn, Caller) ->
 
 connection_caller_mon_loop(CallerRef, Conn) ->
     receive
-        {'DOWN', CallerRef, process, _, _} -> lib_amqp:close_connection(Conn)
+        {'DOWN', CallerRef, process, _, _} -> jamq_api:close_connection(Conn)
     after 1000 ->
         ?MODULE:connection_caller_mon_loop(CallerRef, Conn)
     end.
@@ -74,7 +74,7 @@ channel_caller_mon_loop(Channel, CallerPid) ->
         {'DOWN', _ChannelRef, process, Channel, _} ->
             ok;
         {'DOWN', _CallerRef, process, CallerPid, _} ->
-            lib_amqp:close_channel(Channel)
+            jamq_api:close_channel(Channel)
         after 1000 -> ?MODULE:channel_caller_mon_loop(Channel, CallerPid)
     end.
 
@@ -97,7 +97,7 @@ handle_call({get_connection}, _From, State) ->
 handle_call({get_channel}, _From, #state{connection = undefined} = State) ->
     {reply, {error, no_amqp_channel}, State};
 handle_call({get_channel}, _From, #state{connection = {_, Conn}} = State) ->
-    ChannelReply = try {ok, lib_amqp:start_channel(Conn)} catch
+    ChannelReply = try {ok, jamq_api:start_channel(Conn)} catch
         C:R -> {error, {amqp_start_channel, {C,R}}}
     end,
     {reply, ChannelReply, State};
@@ -122,7 +122,7 @@ handle_info({connection_established, E, Conn}, #state{conn_establisher = E, host
     {noreply, State#state{connection = {MRef, Conn}, conn_establisher = undefined}};
 handle_info({connection_established, _, Conn}, State) ->
     % Closing unwanted open connection.
-    spawn(fun() -> lib_amqp:close_connection(Conn) end),
+    spawn(fun() -> jamq_api:close_connection(Conn) end),
     {noreply, State};
 handle_info({connection_failed, E, Reason}, #state{conn_establisher = E} = State) ->
     lager:info("AMQP connection (~p) failed: ~p", [State#state.role, Reason]),
@@ -142,15 +142,15 @@ asynchronous_connect(#state{hostname = BrokerHostname} = State) ->
     Self = self(),
     Establisher = jsk_async:apply_after(
         fun() ->
-            Connection = lib_amqp:start_connection(BrokerHostname),
-            Channel = lib_amqp:start_channel(Connection),
+            Connection = jamq_api:start_connection(BrokerHostname),
+            Channel = jamq_api:start_channel(Connection),
             jamq_api:declare_permanent_exchange(Channel,
                 <<"jskit-bus">>, <<"topic">>),
             jamq_api:declare_permanent_exchange(Channel,
                 <<"echo-live">>, <<"fanout">>),
             jamq_api:declare_permanent_exchange(Channel,
                 <<"echo-e3-live">>, <<"fanout">>),
-            lib_amqp:close_channel(Channel),
+            jamq_api:close_channel(Channel),
             Connection
         end,
         fun

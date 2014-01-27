@@ -199,7 +199,7 @@ terminate(Reason, #state{channels = Channels}) ->
     end,
     lists:foreach(
         fun (#chan{channel = Chan}) ->
-            (Chan == undefined) orelse (catch lib_amqp:close_channel(Chan))
+            (Chan == undefined) orelse (catch jamq_api:close_channel(Chan))
         end, Channels).
 
 code_change(_OldVsn, State, _Extra) ->
@@ -328,7 +328,7 @@ clean_channel(Chan = #chan{broker = Broker}, Channels) ->
 %% Unconditional channel reconnect
 reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
     Channel = lists:keyfind(Broker, #chan.broker, Channels),
-    catch lib_amqp:close_channel(Channel#chan.channel),
+    catch jamq_api:close_channel(Channel#chan.channel),
     NewTimer =
         case OldTimer == undefined of
             true ->
@@ -375,7 +375,7 @@ amqp_publish(Channel, {publish, _Key, Exchange, Topic, Binary, DeliveryMode, _No
     amqp_publish(Channel, Exchange, Topic, Binary, DeliveryMode).
 
 amqp_publish(Channel, Exchange, Topic, Binary, DeliveryMode) ->
-    Res = lib_amqp:publish(Channel, Exchange, Topic, Binary,
+    Res = jamq_api:publish(Channel, Exchange, Topic, Binary,
         #'P_basic'{
             content_type = <<"application/octet-stream">>,
             delivery_mode = DeliveryMode,

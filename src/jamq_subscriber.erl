@@ -216,7 +216,7 @@ handle_info(acquire_channel, #state{channel = undefined,
         Channel ->
             try
                 setup_queue(Channel, State),
-                lib_amqp:subscribe(Channel, QName, self(), Topic, false, Exc),
+                jamq_api:subscribe(Channel, QName, self(), Topic, false, Exc),
                 lager:info("Subscribed to ~p through ~p", [QName, Channel]),
                 timer:cancel(State#state.ch_timer),
                 (StatusCallback =/= undefined) andalso StatusCallback(up),
@@ -225,7 +225,7 @@ handle_info(acquire_channel, #state{channel = undefined,
                     ch_timer = undefined }
             catch
                 _:SubError ->
-                    catch lib_amqp:close_channel(Channel),
+                    catch jamq_api:close_channel(Channel),
                     SupressError orelse lager:error("Subscription to ~p failed: ~p", [QName, SubError]),
                     (StatusCallback =/= undefined) andalso StatusCallback(down),
                     State
@@ -242,7 +242,7 @@ handle_info({'DOWN', ERef, process, EPid, normal},
                                      topic = Topic}} = State) ->
     {{value, {DeliveryTag, _, _Payload}}, NewMsgsQ} = queue:out(MsgsQ),
     case AutoAck of
-        true -> lib_amqp:ack(Channel, DeliveryTag);
+        true -> jamq_api:ack(Channel, DeliveryTag);
         false -> ok
     end,
     case State#state.processes_waiting_for_unsubscribe of
@@ -331,8 +331,8 @@ unsubscribe_and_close(_Reason, #state{channel = Channel} = State) ->
     QBKeys = (State#state.subscription)#subscription.qbind_keys,
     Topic = (State#state.subscription)#subscription.topic,
     StatusCallback = (State#state.subscription)#subscription.status_callback,
-    A = lib_amqp:unsubscribe(Channel, Topic),
-    B = lib_amqp:close_channel(Channel),
+    A = jamq_api:unsubscribe(Channel, Topic),
+    B = jamq_api:close_channel(Channel),
     lager:info("Unsubscribed from ~p ~p: {~p, ~p} because of exit ~p",
         [QBKeys, Topic, A, B, _Reason]),
     (StatusCallback =/= undefined) andalso StatusCallback(down),
@@ -349,11 +349,11 @@ setup_queue(Channel, #state{ subscription = #subscription{
                                                 queue_args = Args}}) ->
     jamq_api:declare_queue(Channel, QueueName, Dur, Exc, AutoD, Args),
 
-    [{'queue.bind_ok'} = lib_amqp:bind_queue(Channel, ExName, QueueName, K) || K <- QBindKeys],
+    [{'queue.bind_ok'} = jamq_api:bind_queue(Channel, ExName, QueueName, K) || K <- QBindKeys],
 
     case proplists:get_value(prefetch_count, ChannelProps) of
-        undefined -> lib_amqp:set_prefetch_count(Channel, 1000);
-        N -> lib_amqp:set_prefetch_count(Channel, N)
+        undefined -> jamq_api:set_prefetch_count(Channel, 1000);
+        N -> jamq_api:set_prefetch_count(Channel, N)
     end,
     amqp_channel:cast(Channel, {'basic.recover', true}),
     ok.

@@ -8,8 +8,8 @@ run_test_() ->
 
 setup() ->
     [application:start(A) || A <- [dht_ring, compiler, syntax_tools, goldrush, lager, jamq]],
-    meck:new(lib_amqp),
-    meck:expect(lib_amqp, subscribe, fun(_, _, _, _, _, _) -> ok end).
+    meck:new(jamq_api),
+    meck:expect(jamq_api, subscribe, fun(_, _, _, _, _, _) -> ok end).
 
 teardown(_) ->
     meck:unload().
