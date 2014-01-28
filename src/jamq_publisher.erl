@@ -349,10 +349,16 @@ drain_queue(#state{channels = Channels, brokers = Brokers} = State) ->
     {AvailableBrokers, DownBrokers} = get_brokers(Channels, Brokers),
     drain_queue_ll(AvailableBrokers, DownBrokers, [], State#state{brokers = rotate_brokers(Brokers)}).
 
+maybe_log(as, Broker, DownBrokers) ->
+    stats:notify("jamq.debug." ++ atom_to_list(Broker), 1, meter),
+    stats:notify("jamq.debug.down_brokers", 1, meter);
+maybe_log(_, _, _) -> ok.
+
 drain_queue_ll(AvailableBrokers, _DownBrokers, PassedMsgs, #state{queue = Q} = State) when AvailableBrokers == [] orelse Q == [] ->
     State#state{queue = PassedMsgs ++ Q};
-drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = [Msg | Q], channels = Channels} = State) ->
+drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = [Msg | Q], channels = Channels, role = Role} = State) ->
     Broker = get_broker_candidate(AvailableBrokers, DownBrokers, State),
+    maybe_log(Role, Broker, DownBrokers),
     {NewAvailableBrokers, NewPassedMsgs, NewChannels} = case Broker of
         []     -> {AvailableBrokers, lists:append(PassedMsgs, [Msg]), Channels};
         Broker -> {AvailableBrokers -- [Broker], PassedMsgs, send_to_channel(Broker, Msg, Channels)}
