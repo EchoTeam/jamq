@@ -90,10 +90,12 @@ start_link(Name, HostName) when is_atom(Name), is_list(HostName) ->
     gen_server:start_link({local, Name}, ?MODULE, [Name, HostName], []).
 
 init([Name, HostName]) when is_atom(Name), is_list(HostName) ->
-    {ok, asynchronous_connect(#state{role = erlang:list_to_atom(HostName), hostname = HostName}) }.
+    {ok, #state{role = erlang:list_to_atom(HostName), hostname = HostName}}.
 
 handle_call({get_connection}, _From, State) ->
     {reply, State#state.connection, State};
+handle_call({get_channel}, _From, #state{connection = undefined, conn_establisher = undefined} = State) ->
+    {reply, {error, no_amqp_channel}, asynchronous_connect(State)};
 handle_call({get_channel}, _From, #state{connection = undefined} = State) ->
     {reply, {error, no_amqp_channel}, State};
 handle_call({get_channel}, _From, #state{connection = {_, Conn}} = State) ->
@@ -138,7 +140,8 @@ code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
 %% INTERNAL FUNCTIONS
 
-asynchronous_connect(#state{hostname = BrokerHostname} = State) ->
+asynchronous_connect(#state{role = Role, hostname = BrokerHostname} = State) ->
+    lager:info("[JAMQ/~p] Connecting to ~p...", [Role, BrokerHostname]),
     Self = self(),
     Establisher = jsk_async:apply_after(
         fun() ->

@@ -130,31 +130,31 @@ publish_opt(Msg, Opts) when is_list(Opts) ->
 
 init({Role, Brokers}) ->
     {ok, RingPid} = dht_ring:start_link([{Broker, undefined, Weight} || {Broker, Weight} <- weighting(Brokers)]),
-    UniqBrokers = lists:usort(Brokers),
     State = #state{
                 ring = RingPid,
                 role = Role,
                 brokers = Brokers,
-                channels = [#chan{broker = B} || B <- UniqBrokers]},
-    {ok, lists:foldl(fun reconnect/2, State, UniqBrokers)}.
+                channels = []},
+    {ok, State}.
+    %lists:foldl(fun reconnect/2, State, UniqBrokers)}.
 
 handle_call({publish, _Key, _Topic, _Binary} = PubMsg, From, State = #state{}) ->
-    {noreply, drain_queue(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])})};
+    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])}))};
 
 handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, false} = PubMsg, From, State = #state{}) ->
-    {noreply, drain_queue(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])})};
+    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])}))};
 
 handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, true} = PubMsg, _From, State = #state{}) ->
-    {reply, ok, drain_queue(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])})};
+    {reply, ok, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))};
 
 handle_call({status}, _From, #state{queue = Q} = State) ->
     {reply, [{queue, length(Q)}], State}.
 
 handle_cast({publish, _Key, _Topic, _Binary} = PubMsg, State) ->
-    {noreply, drain_queue(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])})};
+    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))};
 
 handle_cast({transient_publish, _Key, _Topic, _Binary} = PubMsg, State = #state{}) ->
-    {noreply, drain_queue(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])})}.
+    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))}.
 
 handle_info({'DOWN', Ref, _, _, Reason}, #state{channels = Channels} = State) ->
     {noreply, handle_down(Channels, Ref, Reason, State)};
@@ -203,22 +203,7 @@ terminate(Reason, #state{channels = Channels}) ->
         end, Channels).
 
 code_change(_OldVsn, State, _Extra) ->
-    NewState = case State of
-        {state, Role, Brokers, Channels, ChannelsTimer, Q, Counter} ->
-            {ok, RingPid} = dht_ring:start_link([{Broker, undefined, Weight} || {Broker, Weight} <- weighting(Brokers)]),
-            NewQ = queue:to_list(Q),
-            S =  #state{ring = RingPid,
-                        role = Role,
-                        brokers = Brokers,
-                        channels = Channels,
-                        ch_timer = ChannelsTimer,
-                        queue = NewQ,
-                        sent_msg_count = Counter},
-            lager:info("Publisher state migration: ~p", [S]),
-            S;
-        #state{} -> State
-    end,
-    {ok, NewState}.
+    {ok, State}.
 
 %%%===================================================================
 %%% Internal functions
@@ -324,6 +309,14 @@ clean_channel(Chan = #chan{broker = Broker}, Channels) ->
     NewChan = Chan#chan{publisher = undefined, msg = undefined},
     lists:keystore(Broker, #chan.broker, Channels, NewChan).
 
+ensure_initialized(State = #state{channels = [], role = Role, brokers = Brokers}) ->
+    lager:info("Initializing jamq publisher ~p...", [Role]),
+    UniqBrokers = lists:usort(Brokers),
+    NewState = State#state{channels = [#chan{broker = B} || B <- UniqBrokers]},
+    lists:foldl(fun reconnect/2, NewState, UniqBrokers);
+
+ensure_initialized(State = #state{}) ->
+    State.
 
 %% Unconditional channel reconnect
 reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
