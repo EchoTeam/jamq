@@ -90,7 +90,7 @@ start_link(Name, HostName) when is_atom(Name), is_list(HostName) ->
     gen_server:start_link({local, Name}, ?MODULE, [Name, HostName], []).
 
 init([Name, HostName]) when is_atom(Name), is_list(HostName) ->
-    {ok, #state{role = erlang:list_to_atom(HostName), hostname = HostName}}.
+    {ok, #state{role = Name, hostname = HostName}}.
 
 handle_call({get_connection}, _From, State) ->
     {reply, State#state.connection, State};

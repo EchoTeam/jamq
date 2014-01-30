@@ -136,7 +136,6 @@ init({Role, Brokers}) ->
                 brokers = Brokers,
                 channels = []},
     {ok, State}.
-    %lists:foldl(fun reconnect/2, State, UniqBrokers)}.
 
 handle_call({publish, _Key, _Topic, _Binary} = PubMsg, From, State = #state{}) ->
     {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])}))};
@@ -326,6 +325,7 @@ reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
         case OldTimer == undefined of
             true ->
                 {ok, TRef} = timer:send_interval(5000, acquire_channel),
+                self() ! acquire_channel,
                 TRef;
             false ->
                 OldTimer
