@@ -13,7 +13,8 @@
     start_link/1,
     reconfigure/0,
     start_new_channels/0,
-    children_specs/1
+    children_specs/1,
+    format_status/0
 ]).
 
 start_link(BrokerSpecs) ->
@@ -63,5 +64,16 @@ spec(Group, Broker) ->
 
 process_name(List) ->
     list_to_atom(string:join(List, "_")).
+
+format_status() ->
+    Statuses = [jamq_channel:status(P) || {_, P, _, _} <- supervisor:which_children(?MODULE)],
+    {Down, Up} = lists:partition(fun (S) -> undefined == proplists:get_value(connection, S, undefined) end, Statuses),
+
+    {Inactive, Connecting} = lists:partition(fun (S) -> undefined == proplists:get_value(connection_establisher, S, undefined) end, Down),
+
+    Format = fun (L) -> lists:map(fun (S) -> io_lib:format("~p~n", [proplists:get_value(role, S, undefined)]) end, L) end,
+
+    io:format("Inactive (~p connections):~n~s~nConnecting (~p connections):~n~s~nUp (~p connections): ~n~s",
+              [length(Inactive), Format(Inactive), length(Connecting), Format(Connecting), length(Up), Format(Up)]).
 
 

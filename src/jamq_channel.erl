@@ -29,12 +29,12 @@
     code_change/3
 ]).
 
-status(ChanServer) when is_atom(ChanServer) -> gen_server:call(ChanServer, {status}).
+status(ChanServer) when is_atom(ChanServer); is_pid(ChanServer) -> gen_server:call(ChanServer, {status}).
 
 name(BrokerGroup, Host) when is_atom(BrokerGroup), is_list(Host) ->
     list_to_atom("amqp_channel_server_" ++ erlang:atom_to_list(BrokerGroup) ++ "_" ++ Host).
 
-channel(ChanServer) when is_atom(ChanServer) ->
+channel(ChanServer) when is_atom(ChanServer); is_pid(ChanServer) ->
     Channel = case gen_server:call(ChanServer, {get_channel}) of
         {ok, C} -> C;
         Error ->
