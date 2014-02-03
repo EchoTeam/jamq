@@ -13,7 +13,8 @@
 
 %% API
 -export([start_link/1, % obsolete
-         start_link/2]).
+         start_link/2,
+         stop/2]).
 
 % JAMQ API
 -export([async_publish/2,
@@ -79,6 +80,9 @@ start_link(Role) ->
 %           and 2/3 of all messages will be sent to b2
 start_link(Role, Brokers) when is_atom(Role), is_list(Brokers) ->
     gen_server:start_link({local, name(Role)}, ?MODULE, {Role, Brokers}, []).
+
+stop(Role, Reason) ->
+    gen_server:call(name(Role), {stop, Reason}).
 
 %%%===================================================================
 %%% JAMQ API
@@ -147,7 +151,10 @@ handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, true} = P
     {reply, ok, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))};
 
 handle_call({status}, _From, #state{queue = Q} = State) ->
-    {reply, [{queue, length(Q)}], State}.
+    {reply, [{queue, length(Q)}], State};
+
+handle_call({stop, Reason}, _From, State) ->
+    {stop, Reason, ok, State}.
 
 handle_cast({publish, _Key, _Topic, _Binary} = PubMsg, State) ->
     {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))};

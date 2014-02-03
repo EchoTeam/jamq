@@ -17,7 +17,8 @@
     connection/1,
     name/2,
     start_link/2,
-    status/1
+    status/1,
+    stop/2
 ]).
 
 -export([
@@ -84,6 +85,9 @@ connection(Role) when is_atom(Role) ->
         undefined -> undefined
     end.
 
+stop(Role, Reason) ->
+    gen_server:call(Role, {stop, Reason}).
+
 -record(state, { role, hostname, connection, conn_establisher }).
 
 start_link(Name, HostName) when is_atom(Name), is_list(HostName) ->
@@ -112,7 +116,10 @@ handle_call({status}, _From, State) ->
                 {_, Pid} -> is_process_alive(Pid)
                 end},
         {connection_establisher, State#state.conn_establisher}
-        ], State}.
+        ], State};
+
+handle_call({stop, Reason}, _From, State) ->
+    {stop, Reason, ok, State}.
 
 handle_cast(_Msg, State) -> {noreply, State}.
 
