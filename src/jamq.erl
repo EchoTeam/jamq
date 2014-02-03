@@ -23,6 +23,7 @@
     async_publish_by_key/3,     % Publish something without waiting for confirmation by key.
     subscribe/1,                % Subscribe to a topic, returns {ok, ServerRef}
     subscribe/2,
+    ack/2,
     start_subscriber/1,
     stop_subscriber/1,
     sync_request/2,
@@ -79,6 +80,9 @@ subscribe(Topic) when is_list(Topic); is_binary(Topic) ->
 
 unsubscribe(Ref) ->
     jamq_client_mon:stop(Ref).
+
+ack(Channel, DeliveryTag) ->
+    jamq_api:ack(Channel, DeliveryTag).
 
 start_subscriber(Options) ->
     jamq_subscriber_top_sup:start_subscriber(Options).

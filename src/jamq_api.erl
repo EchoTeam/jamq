@@ -92,14 +92,14 @@ bind_queue(Channel, X, Q, Binding) ->
     #'queue.bind_ok'{} = amqp_channel:call(Channel, QueueBind).
 
 delete_queue(Channel, Q) ->
-    delete_queue(Channel, Q).
+    delete_queue(Channel, Q, []).
 
 delete_queue(Channel, Q, Options) ->
     QueueDelete =
         lists:foldl(
             fun ({if_unused, Val}, D) -> D#'queue.delete'{if_unused = Val};
                 ({if_empty, Val}, D) -> D#'queue.delete'{if_empty = Val}
-            end, #'queue.delete'{queue = Q}, Options),
+            end, #'queue.delete'{queue = type_utils:to_binary(Q)}, Options),
     #'queue.delete_ok'{} = amqp_channel:call(Channel, QueueDelete).
 
 %% Sets the prefetch count for messages delivered on this channel
