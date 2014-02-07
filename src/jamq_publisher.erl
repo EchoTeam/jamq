@@ -53,7 +53,7 @@
     brokers        = []          :: [nonempty_string()], % Defines order to send messages
     channels       = []          :: [#chan{}],           % Active AMQP Channels
     ch_timer       = undefined   :: timer:tref(),        % Reconnection timer
-    queue          = []          :: list(),              % Excess queue
+    queue          = queue:new() :: queue(),             % Excess queue
     sent_msg_count = 0           :: pos_integer()
 }).
 
@@ -142,26 +142,26 @@ init({Role, Brokers}) ->
                 channels = []},
     {ok, State}.
 
-handle_call({publish, _Key, _Topic, _Binary} = PubMsg, From, State = #state{}) ->
-    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])}))};
+handle_call({publish, _Key, _Topic, _Binary} = PubMsg, From, State = #state{queue = Q}) ->
+    {noreply, drain_queue(ensure_initialized(State#state{queue = queue:in({From, PubMsg}, Q)}))};
 
-handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, false} = PubMsg, From, State = #state{}) ->
-    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{From, PubMsg}])}))};
+handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, false} = PubMsg, From, State = #state{queue = Q}) ->
+    {noreply, drain_queue(ensure_initialized(State#state{queue = queue:in({From, PubMsg}, Q)}))};
 
-handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, true} = PubMsg, _From, State = #state{}) ->
-    {reply, ok, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))};
+handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, true} = PubMsg, _From, State = #state{queue = Q}) ->
+    {reply, ok, drain_queue(ensure_initialized(State#state{queue = queue:in({nofrom, PubMsg}, Q)}))};
 
-handle_call({status}, _From, #state{queue = Q} = State) ->
+handle_call({status}, _From, #state{} = State) ->
     {reply, status(State), State};
 
 handle_call({stop, Reason}, _From, State) ->
     {stop, Reason, ok, State}.
 
-handle_cast({publish, _Key, _Topic, _Binary} = PubMsg, State) ->
-    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))};
+handle_cast({publish, _Key, _Topic, _Binary} = PubMsg, State = #state{queue = Q}) ->
+    {noreply, drain_queue(ensure_initialized(State#state{queue = queue:in({nofrom, PubMsg}, Q)}))};
 
-handle_cast({transient_publish, _Key, _Topic, _Binary} = PubMsg, State = #state{}) ->
-    {noreply, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))}.
+handle_cast({transient_publish, _Key, _Topic, _Binary} = PubMsg, State = #state{queue = Q}) ->
+    {noreply, drain_queue(ensure_initialized(State#state{queue = queue:in({nofrom, PubMsg}, Q)}))}.
 
 handle_info({'DOWN', Ref, _, _, Reason}, #state{channels = Channels} = State) ->
     {noreply, handle_down(Channels, Ref, Reason, State)};
@@ -290,20 +290,22 @@ handle_down([#chan{publisher = {_, Ref}, msg = {From, _}} = Chan|_], Ref, normal
 handle_down([#chan{publisher = {_, Ref}, msg = Msg} = Chan|_], Ref, {{error, {channel, Reason}}, _},
             #state{channels = Channels, queue = Q, role = Role} = State) ->
     lager:info("Can not publish to channel on broker ~p: ~p", [Role, Reason]),
-    NewState = State#state{queue = [Msg | Q], channels = clean_channel(Chan, Channels)},
+    NewState = State#state{queue = queue:in_r(Msg, Q), channels = clean_channel(Chan, Channels)},
     drain_queue(NewState);
 
 handle_down([#chan{publisher = {_, Ref}, msg = Msg, broker = B} = Chan|_], Ref, _Reason,
             #state{channels = Channels, queue = Q} = State) ->
-    NewState = State#state{queue = [Msg | Q], channels = clean_channel(Chan, Channels)},
+    NewState = State#state{queue = queue:in_r(Msg, Q), channels = clean_channel(Chan, Channels)},
     reconnect(B, NewState);
 
 handle_down([#chan{mon = Ref, publisher = Publisher, msg = Msg, broker = B} = Chan|_], Ref, _Reason,
             #state{channels = Channels, queue = Q} = State) ->
     NewQ = case Publisher of
-        {_, PublisherMon} -> catch erlang:demonitor(PublisherMon, [flush]),
-                             [Msg | Q];
-        _                 -> Q
+        {_, PublisherMon} ->
+            catch erlang:demonitor(PublisherMon, [flush]),
+            queue:in_r(Msg, Q);
+        _ ->
+            Q
     end,
     NewState = State#state{queue = NewQ, channels = clean_channel(Chan, Channels)},
     reconnect(B, NewState);
@@ -344,21 +346,29 @@ reconnect(Broker, #state{channels = Channels, ch_timer = OldTimer} = State) ->
         ch_timer = NewTimer
     }.
 
-drain_queue(#state{queue = Q, brokers = Brokers} = State) when Q == [] orelse Brokers == [] ->
+drain_queue(#state{brokers = []} = State) ->
     State;
-drain_queue(#state{channels = Channels, brokers = Brokers} = State) ->
-    {AvailableBrokers, DownBrokers} = get_brokers(Channels, Brokers),
-    drain_queue_ll(AvailableBrokers, DownBrokers, [], State#state{brokers = rotate_brokers(Brokers)}).
+drain_queue(#state{queue = Q, channels = Channels, brokers = Brokers} = State) ->
+    case queue:is_empty(Q) of
+        true  -> State;
+        false ->
+            {AvailableBrokers, DownBrokers} = get_brokers(Channels, Brokers),
+            drain_queue_ll(AvailableBrokers, DownBrokers, queue:new(), State#state{brokers = rotate_brokers(Brokers)})
+    end.
 
-drain_queue_ll(AvailableBrokers, _DownBrokers, PassedMsgs, #state{queue = Q} = State) when AvailableBrokers == [] orelse Q == [] ->
-    State#state{queue = PassedMsgs ++ Q};
-drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = [Msg | Q], channels = Channels} = State) ->
-    Broker = get_broker_candidate(AvailableBrokers, DownBrokers, State),
-    {NewAvailableBrokers, NewPassedMsgs, NewChannels} = case Broker of
-        []     -> {AvailableBrokers, lists:append(PassedMsgs, [Msg]), Channels};
-        Broker -> {AvailableBrokers -- [Broker], PassedMsgs, send_to_channel(Broker, Msg, Channels)}
-    end,
-    drain_queue_ll(NewAvailableBrokers, DownBrokers, NewPassedMsgs, State#state{queue = Q, channels = NewChannels}).
+drain_queue_ll([], _DownBrokers, PassedMsgs, #state{queue = Q} = State) ->
+    State#state{queue = queue:join(PassedMsgs, Q)};
+drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = Q, channels = Channels, ring = RingPid} = State) ->
+    case queue:out(Q) of
+        {empty, _}  -> State#state{queue = queue:join(PassedMsgs, Q)};
+        {{value, Msg}, Tail} ->
+            Broker = get_broker_candidate(AvailableBrokers, DownBrokers, Msg, RingPid),
+            {NewAvailableBrokers, NewPassedMsgs, NewChannels} = case Broker of
+                []     -> {AvailableBrokers, queue:in(Msg, PassedMsgs), Channels};
+                Broker -> {AvailableBrokers -- [Broker], PassedMsgs, send_to_channel(Broker, Msg, Channels)}
+            end,
+            drain_queue_ll(NewAvailableBrokers, DownBrokers, NewPassedMsgs, State#state{queue = Tail, channels = NewChannels})
+    end.
 
 send_to_channel(Broker, {_, PubMsg} = Msg, Channels) ->
     Chan = lists:keyfind(Broker, #chan.broker, Channels),
@@ -413,7 +423,7 @@ wrapped_msg(Msg) ->
 
 %% Brokers machinery
 
-get_broker_candidate(AvailableBrokers, DownBrokers, #state{queue = [{_, Msg} | _Q], ring = RingPid}) ->
+get_broker_candidate(AvailableBrokers, DownBrokers, {_, Msg}, RingPid) ->
     Key = element(2, Msg),
     case Key of
         undefined -> hd(AvailableBrokers);
@@ -446,7 +456,7 @@ format_status(_Opt, [_Dict, State]) ->
 
 status(State) ->
     [{role, State#state.role},
-     {queue_length, length(State#state.queue)},
+     {queue_length, queue:len(State#state.queue)},
      {channels, State#state.channels},
      {sent_message_count, State#state.sent_msg_count}].
 
