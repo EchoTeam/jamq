@@ -362,7 +362,12 @@ drain_queue_ll(AvailableBrokers, DownBrokers, PassedMsgs, #state{queue = [Msg | 
 
 send_to_channel(Broker, {_, PubMsg} = Msg, Channels) ->
     Chan = lists:keyfind(Broker, #chan.broker, Channels),
-    Publisher = spawn_monitor(fun() -> amqp_publish(Chan#chan.channel, PubMsg) end),
+    Publisher = spawn_monitor(fun() -> 
+                    plog:delta(jamq, send_to_channel, 
+                        fun () ->
+                            amqp_publish(Chan#chan.channel, PubMsg)
+                        end)
+                end),
     NewChan = Chan#chan{msg = Msg, publisher = Publisher},
     lists:keystore(Broker, #chan.broker, Channels, NewChan).
 
