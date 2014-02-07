@@ -27,7 +27,8 @@
          publish_opt/2]).
 
 -export([event_handler/2,
-         format_status/2]).
+         format_status/2
+        ]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -151,7 +152,7 @@ handle_call({publish, _Key, _Exchange, _Topic, _Binary, _DeliveryMode, true} = P
     {reply, ok, drain_queue(ensure_initialized(State#state{queue = lists:append(State#state.queue, [{nofrom, PubMsg}])}))};
 
 handle_call({status}, _From, #state{queue = Q} = State) ->
-    {reply, [{queue, length(Q)}], State};
+    {reply, status(State), State};
 
 handle_call({stop, Reason}, _From, State) ->
     {stop, Reason, ok, State}.
@@ -440,12 +441,14 @@ get_brokers(Channels, Brokers) ->
 rotate_brokers([]) -> [];
 rotate_brokers([Broker | Brokers]) -> lists:append(Brokers, [Broker]).
 
-
 format_status(_Opt, [_Dict, State]) ->
-    [{data, [{"State", [{role, State#state.role},
-                        {queue_length, queue:len(State#state.queue)},
-                        {channels, State#state.channels},
-                        {sent_message_count, State#state.sent_msg_count}]}]}].
+    [{data, [{"State", status(State)}]}].
+
+status(State) ->
+    [{role, State#state.role},
+     {queue_length, length(State#state.queue)},
+     {channels, State#state.channels},
+     {sent_message_count, State#state.sent_msg_count}].
 
 log_message(Topic, Msg) ->
     case application:get_env(jamq, large_msg_log) of
