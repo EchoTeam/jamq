@@ -376,12 +376,29 @@ amqp_publish(Channel, {publish, _Key, Exchange, Topic, Binary, DeliveryMode, _No
     amqp_publish(Channel, Exchange, Topic, Binary, DeliveryMode).
 
 amqp_publish(Channel, Exchange, Topic, Binary, DeliveryMode) ->
+    Start = os:timestamp(),
+
+    NeedLog =
+        case Start of
+            {_, _, N} -> (N div 100) == 0;
+            _ -> false
+        end,
+
     Res = jamq_api:publish(Channel, Exchange, Topic, Binary,
         #'P_basic'{
             content_type = <<"application/octet-stream">>,
             delivery_mode = DeliveryMode,
             priority = 0
         }),
+
+    case NeedLog of
+        true ->
+            Stop = os:timestamp(),
+            Diff = timer:now_diff(Stop, Start),
+            lager:info("********  jamq_api:publish time ~p microseconds", [Diff]);
+        _ -> ok
+    end,
+
     case Res of
         ok      -> ok;
         closing -> erlang:error({error, {channel, closing}});
