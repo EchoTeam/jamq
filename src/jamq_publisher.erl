@@ -142,6 +142,9 @@ init({Role, Brokers}) ->
                 channels = []},
     {ok, State}.
 
+handle_call(Msg, From, State = #state{queue = Q}) when is_list(Q) ->
+    handle_call(Msg, From, State#state{queue = queue:from_list(Q)});
+
 handle_call({publish, _Key, _Topic, _Binary} = PubMsg, From, State = #state{queue = Q}) ->
     {noreply, drain_queue(ensure_initialized(State#state{queue = queue:in({From, PubMsg}, Q)}))};
 
@@ -157,11 +160,17 @@ handle_call({status}, _From, #state{} = State) ->
 handle_call({stop, Reason}, _From, State) ->
     {stop, Reason, ok, State}.
 
+handle_cast(Msg, State = #state{queue = Q}) when is_list(Q) ->
+    handle_cast(Msg, State#state{queue = queue:from_list(Q)});
+
 handle_cast({publish, _Key, _Topic, _Binary} = PubMsg, State = #state{queue = Q}) ->
     {noreply, drain_queue(ensure_initialized(State#state{queue = queue:in({nofrom, PubMsg}, Q)}))};
 
 handle_cast({transient_publish, _Key, _Topic, _Binary} = PubMsg, State = #state{queue = Q}) ->
     {noreply, drain_queue(ensure_initialized(State#state{queue = queue:in({nofrom, PubMsg}, Q)}))}.
+
+handle_info(Msg, State = #state{queue = Q}) when is_list(Q) ->
+    handle_info(Msg, State#state{queue = queue:from_list(Q)});
 
 handle_info({'DOWN', Ref, _, _, Reason}, #state{channels = Channels} = State) ->
     {noreply, handle_down(Channels, Ref, Reason, State)};
