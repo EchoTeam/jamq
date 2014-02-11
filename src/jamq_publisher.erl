@@ -11,6 +11,8 @@
 -compile([export_all]). % used for test purpose only
 -endif.
 
+-define(WEIGHT, 200).
+
 %% API
 -export([start_link/1, % obsolete
          start_link/2,
@@ -134,7 +136,7 @@ publish_opt(Msg, Opts) when is_list(Opts) ->
 %%%===================================================================
 
 init({Role, Brokers}) ->
-    {ok, RingPid} = dht_ring:start_link([{Broker, undefined, Weight} || {Broker, Weight} <- weighting(Brokers)]),
+    {ok, RingPid} = dht_ring:start_link([{Broker, undefined, ?WEIGHT} || Broker <- Brokers]),
     State = #state{
                 ring = RingPid,
                 role = Role,
@@ -417,10 +419,6 @@ amqp_publish(Channel, Exchange, Topic, Binary, DeliveryMode) ->
 
 name(Role) when is_atom(Role) ->
     list_to_atom("jamq_publisher_" ++ atom_to_list(Role)).
-
-weighting(Brokers) ->
-    Weight = round(100/length(Brokers)),
-    dict:to_list(lists:foldl(fun(Key, Dict) -> dict:update_counter(Key, Weight, Dict) end, dict:new(), Brokers)).
 
 maybe_publish(Msg) ->
     erlang:external_size(Msg) < 50*1024*1024.
