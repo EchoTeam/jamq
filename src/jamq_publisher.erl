@@ -119,6 +119,7 @@ publish_opt(Msg, Opts) when is_list(Opts) ->
         true ->
             Role = proplists:get_value(broker, Opts),
             Exchange = proplists:get_value(exchange, Opts, <<"jskit-bus">>),
+            Timeout = proplists:get_value(timeout, Opts, 30000),
             DeliveryMode = case proplists:get_bool(transient, Opts) of
                     true -> 1; false -> 2 end,
             NoWait = proplists:get_bool(nowait, Opts),
@@ -127,7 +128,7 @@ publish_opt(Msg, Opts) when is_list(Opts) ->
                 {publish, Key, Exchange,
                     iolist_to_binary(Topic),
                     term_to_binary(wrapped_msg(Msg)),
-                    DeliveryMode, NoWait});
+                    DeliveryMode, NoWait}, Timeout);
         false -> log_message(Topic, Msg)
     end.
 
